@@ -1,0 +1,19 @@
+{
+  "name": "@articles/mcp-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《Agent 接入工具为什么要标准化？MCP 到底解决了什么痛点？》代码示例：手写工具 bindTools（痛点）vs MCP stdio server + @langchain/mcp-adapters 接入 LangGraph Agent",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/mcp-adapters": "^1.1.3",
+    "@langchain/openai": "^1.5.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  }
+}
