@@ -64,7 +64,7 @@ function ensureEnv(): void {
   if (!apiKey) {
     throw new Error(
       "未找到 LLM API Key：请先在仓库根目录创建 .env（LLM_API_KEY=sk-...），" +
-        "或在 ~/.zshrc 里 export DEEPSEEK_API_KEY/LLM_API_KEY",
+        "或在 ~/.zshrc 里 export DEEPSEEK_API_KEY/LLM_API_KEY"
     );
   }
   const envContent = [
@@ -106,7 +106,7 @@ async function setupMcpClient() {
       cwd: ARTICLE_DIR,
       // 生产上这里可以只透传白名单；演示直接透传全部环境变量
       env: Object.fromEntries(
-        Object.entries(process.env).filter(([, v]) => v !== undefined),
+        Object.entries(process.env).filter(([, v]) => v !== undefined)
       ) as Record<string, string>,
     },
   });
@@ -119,9 +119,7 @@ async function setupMcpClient() {
   for (const tool of tools) {
     const shape = (tool.schema as { shape?: unknown }).shape;
     const keys =
-      typeof shape === "function"
-        ? Object.keys(shape())
-        : Object.keys((shape as object) ?? {});
+      typeof shape === "function" ? Object.keys(shape()) : Object.keys((shape as object) ?? {});
     const desc = tool.description.split("\n")[0];
     console.log(`    ✅ ${tool.name} — ${desc}`);
     console.log(`       参数: ${keys.join(", ") || "(无)"}`);
@@ -166,11 +164,7 @@ function messageContent(msg: { content: unknown }): string {
   return typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
 }
 
-async function runTask(
-  agent: ReturnType<typeof buildAgent>,
-  label: string,
-  question: string,
-) {
+async function runTask(agent: ReturnType<typeof buildAgent>, label: string, question: string) {
   console.log(`\n${"-".repeat(72)}`);
   console.log(`阶段 3/4：${label}`);
   console.log(`${"-".repeat(72)}`);
@@ -178,7 +172,7 @@ async function runTask(
 
   const stream = await agent.stream(
     { messages: [new HumanMessage(question)] },
-    { streamMode: "values", recursionLimit: 10 },
+    { streamMode: "values", recursionLimit: 10 }
   );
 
   for await (const step of stream) {
@@ -216,9 +210,21 @@ async function main() {
   const agent = buildAgent(tools);
 
   try {
-    await runTask(agent, "任务 A：走 calculate 工具做数学计算", "请调用 calculate 工具计算 (3.5+12.25)*4-7/2，告诉我结果。");
-    await runTask(agent, "任务 B：走 get_weather 工具查天气", "北京今天天气怎么样？温度多少度？请调用 get_weather 工具查询后再回答。");
-    await runTask(agent, "任务 C：两个工具都要用（多步推理）", "先算 2^10 是多少，再查上海天气，把两件事的结果一起告诉我。");
+    await runTask(
+      agent,
+      "任务 A：走 calculate 工具做数学计算",
+      "请调用 calculate 工具计算 (3.5+12.25)*4-7/2，告诉我结果。"
+    );
+    await runTask(
+      agent,
+      "任务 B：走 get_weather 工具查天气",
+      "北京今天天气怎么样？温度多少度？请调用 get_weather 工具查询后再回答。"
+    );
+    await runTask(
+      agent,
+      "任务 C：两个工具都要用（多步推理）",
+      "先算 2^10 是多少，再查上海天气，把两件事的结果一起告诉我。"
+    );
   } finally {
     // 收尾：关闭所有 MCP 连接（子进程随 stdin 关闭而退出）
     console.log("\n" + "=".repeat(72));

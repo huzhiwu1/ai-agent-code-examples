@@ -44,7 +44,7 @@ const llm = new ChatOpenAI({
 
 const SYSTEM_PROMPT = new SystemMessage(
   "你是一个乐于助人的助手。用户可能在对话中透露个人信息（比如名字），" +
-    "如果历史消息里有，被问到时直接回答；如果没有，就如实说不知道。回答保持简洁。",
+    "如果历史消息里有，被问到时直接回答；如果没有，就如实说不知道。回答保持简洁。"
 );
 
 /* ------------------------------------------------------------------ */
@@ -80,8 +80,7 @@ function buildAgent(checkpointer?: MemorySaver) {
 async function chat(agent: ReturnType<typeof buildAgent>, text: string, config?: object) {
   const res = await agent.invoke({ messages: [new HumanMessage(text)] }, config);
   const last = res.messages[res.messages.length - 1];
-  const content =
-    typeof last.content === "string" ? last.content : JSON.stringify(last.content);
+  const content = typeof last.content === "string" ? last.content : JSON.stringify(last.content);
   return content;
 }
 
@@ -125,7 +124,9 @@ async function scenarioWithMemory() {
 
   // 顺便看看检查点里到底存了什么
   const state = await agent.getState(config);
-  console.log(`  → 检查点里已存 ${state.values.messages.length} 条消息（含系统提示词），跨会话生效 ✅\n`);
+  console.log(
+    `  → 检查点里已存 ${state.values.messages.length} 条消息（含系统提示词），跨会话生效 ✅\n`
+  );
 }
 
 /* ------------------------------------------------------------------ */

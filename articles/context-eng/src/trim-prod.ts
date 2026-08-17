@@ -5,7 +5,8 @@ import { getEncoding } from "js-tiktoken";
 async function main() {
   const enc = getEncoding("cl100k_base");
 
-  const longChunk = `退货政策 3.0（2026-08-01 修订）\n` +
+  const longChunk =
+    `退货政策 3.0（2026-08-01 修订）\n` +
     `退货期限：签收后 7 天内支持无理由退货，商品需保持完好。\n` +
     `特殊商品：食品、内衣、定制商品、跨境商品不支持无理由退货。\n` +
     `退货流程：订单详情页 → 申请售后 → 选择退货退款 → 填写原因 → 提交申请。\n` +
@@ -21,14 +22,21 @@ async function main() {
   console.log(`chunk 字符数: ${longChunk.length}`);
   console.log(`① 字符数估算 token: ${charEstimate}`);
   console.log(`② js-tiktoken 精确 token: ${exactTokens}`);
-  console.log(`   误差: ${Math.abs(charEstimate - exactTokens)} (${(Math.abs(charEstimate - exactTokens) / exactTokens * 100).toFixed(0)}%)\n`);
+  console.log(
+    `   误差: ${Math.abs(charEstimate - exactTokens)} (${((Math.abs(charEstimate - exactTokens) / exactTokens) * 100).toFixed(0)}%)\n`
+  );
 
   // trimMessages：tokenCounter 接收消息数组，返回总 token 数
   const trimmed = await trimMessages([new HumanMessage(longChunk)], {
     maxTokens: 60,
     strategy: "last",
     tokenCounter: (msgs) =>
-      msgs.reduce((sum, m) => sum + enc.encode(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0),
+      msgs.reduce(
+        (sum, m) =>
+          sum +
+          enc.encode(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length,
+        0
+      ),
     includeSystem: false,
     allowPartial: true,
   });
@@ -39,4 +47,7 @@ async function main() {
   console.log(`  内容: ${trimmedContent.slice(0, 120)}...`);
 }
 
-main().catch(e => { console.error("❌", e.message); process.exit(1); });
+main().catch((e) => {
+  console.error("❌", e.message);
+  process.exit(1);
+});

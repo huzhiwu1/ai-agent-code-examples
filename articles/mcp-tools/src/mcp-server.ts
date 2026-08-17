@@ -55,14 +55,16 @@ server.registerTool(
       return { content: [{ type: "text", text }] };
     } catch (e) {
       return {
-        content: [{
-          type: "text",
-          text: `查询 ${city} 天气失败：${e instanceof Error ? e.message : String(e)}`,
-        }],
+        content: [
+          {
+            type: "text",
+            text: `查询 ${city} 天气失败：${e instanceof Error ? e.message : String(e)}`,
+          },
+        ],
         isError: true,
       };
     }
-  },
+  }
 );
 
 /* ------------------------------------------------------------------ */
@@ -79,7 +81,7 @@ server.registerTool(
   },
   async ({ text }) => ({
     content: [{ type: "text", text: `echo: ${text}` }],
-  }),
+  })
 );
 
 /* ------------------------------------------------------------------ */

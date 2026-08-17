@@ -7,10 +7,10 @@ AI Agent 知识文章的**可运行代码示例库**（pnpm monorepo，每篇文
 
 ## 📖 配套文章
 
-| 文章 | 代码 | 跑法 |
-|------|------|------|
-| 怎么让 Agent 记住上次对话？（记忆管理） | [articles/agent-memory/](articles/agent-memory/) | `npm run run:memory` |
-| 上下文工程：模型窗口有限，放什么比怎么写更重要 | [articles/context-eng/](articles/context-eng/) | `npm run run:context-eng` |
+| 文章                                           | 代码                                             | 跑法                      |
+| ---------------------------------------------- | ------------------------------------------------ | ------------------------- |
+| 怎么让 Agent 记住上次对话？（记忆管理）        | [articles/agent-memory/](articles/agent-memory/) | `npm run run:memory`      |
+| 上下文工程：模型窗口有限，放什么比怎么写更重要 | [articles/context-eng/](articles/context-eng/)   | `npm run run:context-eng` |
 
 ## 快速开始
 

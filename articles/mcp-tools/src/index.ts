@@ -88,7 +88,7 @@ const handWrittenWeatherTool = tool(
     name: "get_weather",
     description: "查询指定城市当前天气（需要经纬度）。",
     schema: weatherInputSchema,
-  },
+  }
 );
 
 // ③ 手写"绑定"：把工具塞给这一个 LLM 实例（换模型/换框架就要重新绑）
@@ -99,7 +99,7 @@ async function runPainPointDemo() {
   console.log("工具是手写的：zod schema + fetch 实现 + 错误处理 + bindTools 硬绑定\n");
 
   const userMsg = new HumanMessage(
-    "请调用 get_weather 工具查询北京（纬度 39.9，经度 116.4）现在的天气，然后告诉我温度。",
+    "请调用 get_weather 工具查询北京（纬度 39.9，经度 116.4）现在的天气，然后告诉我温度。"
   );
   const messages = [userMsg];
 
@@ -169,7 +169,7 @@ async function runMCPDemo() {
   const answer = await agent.invoke({
     messages: [
       new HumanMessage(
-        "请调用 get_weather 工具查询北京（纬度 39.9，经度 116.4）现在的天气，然后告诉我温度。",
+        "请调用 get_weather 工具查询北京（纬度 39.9，经度 116.4）现在的天气，然后告诉我温度。"
       ),
     ],
   });

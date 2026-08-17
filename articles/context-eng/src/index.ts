@@ -113,9 +113,14 @@ async function trimChunk(chunk: string, maxTokens: number): Promise<string> {
   const msg = new HumanMessage(chunk);
   const trimmed = await trimMessages([msg], {
     maxTokens,
-    strategy: "last",  // 保留尾部（最近信息优先）
+    strategy: "last", // 保留尾部（最近信息优先）
     tokenCounter: (msgs) =>
-      msgs.reduce((sum, m) => sum + enc.encode(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0),
+      msgs.reduce(
+        (sum, m) =>
+          sum +
+          enc.encode(typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length,
+        0
+      ),
     includeSystem: false,
     allowPartial: true,
   });
@@ -148,15 +153,16 @@ async function main() {
 
   // ── 2. 向量化 + 检索 ──
   // 生产级 Embedding：阿里云 DashScope（OpenAI 兼容端点），text-embedding-v3
-// key 配置：仓库根 .env 的 EMBEDDING_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_MODEL
-const embeddings = new OpenAIEmbeddings({
-  apiKey: process.env.EMBEDDING_API_KEY ?? process.env.API_KEY,
-  model: process.env.EMBEDDING_MODEL ?? "text-embedding-v3",
-  batchSize: 10,  // DashScope 单批上限 10 条
-  configuration: {
-    baseURL: process.env.EMBEDDING_BASE_URL ?? "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  },
-});
+  // key 配置：仓库根 .env 的 EMBEDDING_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_MODEL
+  const embeddings = new OpenAIEmbeddings({
+    apiKey: process.env.EMBEDDING_API_KEY ?? process.env.API_KEY,
+    model: process.env.EMBEDDING_MODEL ?? "text-embedding-v3",
+    batchSize: 10, // DashScope 单批上限 10 条
+    configuration: {
+      baseURL:
+        process.env.EMBEDDING_BASE_URL ?? "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    },
+  });
   const vectorStore = await MemoryVectorStore.fromDocuments(chunks, embeddings);
 
   const QUESTION = "我的订单 ORD-20260815-001 发货 3 天了，想退货，退款多久能到账？";
@@ -172,35 +178,43 @@ const embeddings = new OpenAIEmbeddings({
 
   // 策略 A：坏 —— 全部检索结果，不筛选不裁剪
   const badChunks = rawResults;
-  const badContext = badChunks
-    .map((r, i) => `【${i + 1}】${r[0].pageContent}`)
-    .join("\n\n");
-  const badSystem = new SystemMessage("你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。");
-  const badHuman = new HumanMessage(`以下是检索到的文档片段：\n\n${badContext}\n\n用户问题：${QUESTION}`);
+  const badContext = badChunks.map((r, i) => `【${i + 1}】${r[0].pageContent}`).join("\n\n");
+  const badSystem = new SystemMessage(
+    "你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。"
+  );
+  const badHuman = new HumanMessage(
+    `以下是检索到的文档片段：\n\n${badContext}\n\n用户问题：${QUESTION}`
+  );
   const badMessages = [badSystem, badHuman];
 
   // 策略 B：中 —— top-k 筛选，不裁剪
   const TOP_K = 4;
   const medChunks = rawResults.slice(0, TOP_K);
-  const medContext = medChunks
-    .map((r, i) => `【${i + 1}】${r[0].pageContent}`)
-    .join("\n\n");
-  const medSystem = new SystemMessage("你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。");
-  const medHuman = new HumanMessage(`以下是检索到的文档片段：\n\n${medContext}\n\n用户问题：${QUESTION}`);
+  const medContext = medChunks.map((r, i) => `【${i + 1}】${r[0].pageContent}`).join("\n\n");
+  const medSystem = new SystemMessage(
+    "你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。"
+  );
+  const medHuman = new HumanMessage(
+    `以下是检索到的文档片段：\n\n${medContext}\n\n用户问题：${QUESTION}`
+  );
   const medMessages = [medSystem, medHuman];
 
   // 策略 C：好 —— top-k 筛选 + 语义边界裁剪 + 截断标记
-  const MAX_CHUNK_TOKENS = 60;  // 生产：按精确 token 预算裁剪
-  const goodChunks = await Promise.all(medChunks.map(async (r) => ({
-    doc: r[0],
-    score: r[1],
-    truncated: await trimChunk(r[0].pageContent, MAX_CHUNK_TOKENS),
-  })));
-  const goodContext = goodChunks
-    .map((r, i) => `【${i + 1}】${r.truncated}`)
-    .join("\n\n");
-  const goodSystem = new SystemMessage("你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。");
-  const goodHuman = new HumanMessage(`以下是检索到的文档片段：\n\n${goodContext}\n\n用户问题：${QUESTION}`);
+  const MAX_CHUNK_TOKENS = 60; // 生产：按精确 token 预算裁剪
+  const goodChunks = await Promise.all(
+    medChunks.map(async (r) => ({
+      doc: r[0],
+      score: r[1],
+      truncated: await trimChunk(r[0].pageContent, MAX_CHUNK_TOKENS),
+    }))
+  );
+  const goodContext = goodChunks.map((r, i) => `【${i + 1}】${r.truncated}`).join("\n\n");
+  const goodSystem = new SystemMessage(
+    "你是电商客服助手。请严格依据提供的文档片段回答用户问题。如果文档片段不足以回答，请如实告知。"
+  );
+  const goodHuman = new HumanMessage(
+    `以下是检索到的文档片段：\n\n${goodContext}\n\n用户问题：${QUESTION}`
+  );
   const goodMessages = [goodSystem, goodHuman];
 
   // ── 4. 计算指标 ──
@@ -209,33 +223,56 @@ const embeddings = new OpenAIEmbeddings({
   const medTokenEst = medMessages.reduce((s, m) => s + estimateTokens(String(m.content)), 0);
   const goodTokenEst = goodMessages.reduce((s, m) => s + estimateTokens(String(m.content)), 0);
 
-  const badRelevant = badChunks.filter((r) => isRelevant(r[0].pageContent, RELEVANT_KEYWORDS)).length;
-  const medRelevant = medChunks.filter((r) => isRelevant(r[0].pageContent, RELEVANT_KEYWORDS)).length;
-  const goodRelevant = goodChunks.filter((r) => isRelevant(r.doc.pageContent, RELEVANT_KEYWORDS)).length;
+  const badRelevant = badChunks.filter((r) =>
+    isRelevant(r[0].pageContent, RELEVANT_KEYWORDS)
+  ).length;
+  const medRelevant = medChunks.filter((r) =>
+    isRelevant(r[0].pageContent, RELEVANT_KEYWORDS)
+  ).length;
+  const goodRelevant = goodChunks.filter((r) =>
+    isRelevant(r.doc.pageContent, RELEVANT_KEYWORDS)
+  ).length;
 
-  const badSignalRatio = badChunks.length > 0 ? (badRelevant / badChunks.length * 100).toFixed(1) : "0.0";
-  const medSignalRatio = medChunks.length > 0 ? (medRelevant / medChunks.length * 100).toFixed(1) : "0.0";
-  const goodSignalRatio = goodChunks.length > 0 ? (goodRelevant / goodChunks.length * 100).toFixed(1) : "0.0";
+  const badSignalRatio =
+    badChunks.length > 0 ? ((badRelevant / badChunks.length) * 100).toFixed(1) : "0.0";
+  const medSignalRatio =
+    medChunks.length > 0 ? ((medRelevant / medChunks.length) * 100).toFixed(1) : "0.0";
+  const goodSignalRatio =
+    goodChunks.length > 0 ? ((goodRelevant / goodChunks.length) * 100).toFixed(1) : "0.0";
 
   // ── 5. 输出对比表格 ──
 
   console.log("=".repeat(70));
   console.log("  📊 三种上下文策略对比");
   console.log("=".repeat(70));
-  console.log(`  ${"指标".padEnd(20)} ${"坏 (全部)".padEnd(16)} ${"中 (top-k)".padEnd(16)} ${"好 (top-k+裁剪)".padEnd(16)}`);
+  console.log(
+    `  ${"指标".padEnd(20)} ${"坏 (全部)".padEnd(16)} ${"中 (top-k)".padEnd(16)} ${"好 (top-k+裁剪)".padEnd(16)}`
+  );
   console.log("  " + "─".repeat(66));
-  console.log(`  ${"chunk 数".padEnd(20)} ${String(badChunks.length).padEnd(16)} ${String(medChunks.length).padEnd(16)} ${String(goodChunks.length).padEnd(16)}`);
-  console.log(`  ${"token 估算".padEnd(20)} ${String(badTokenEst).padEnd(16)} ${String(medTokenEst).padEnd(16)} ${String(goodTokenEst).padEnd(16)}`);
-  console.log(`  ${"相关 chunk".padEnd(20)} ${badRelevant.toString().padEnd(16)} ${medRelevant.toString().padEnd(16)} ${goodRelevant.toString().padEnd(16)}`);
-  console.log(`  ${"信号比".padEnd(20)} ${(badSignalRatio + "%").padEnd(15)} ${(medSignalRatio + "%").padEnd(15)} ${(goodSignalRatio + "%").padEnd(15)}`);
-  console.log(`  ${"token 节省".padEnd(20)} ${"—".padEnd(16)} ${`${Math.round((1 - medTokenEst / badTokenEst) * 100)}%`.padEnd(16)} ${`${Math.round((1 - goodTokenEst / badTokenEst) * 100)}%`.padEnd(16)}`);
+  console.log(
+    `  ${"chunk 数".padEnd(20)} ${String(badChunks.length).padEnd(16)} ${String(medChunks.length).padEnd(16)} ${String(goodChunks.length).padEnd(16)}`
+  );
+  console.log(
+    `  ${"token 估算".padEnd(20)} ${String(badTokenEst).padEnd(16)} ${String(medTokenEst).padEnd(16)} ${String(goodTokenEst).padEnd(16)}`
+  );
+  console.log(
+    `  ${"相关 chunk".padEnd(20)} ${badRelevant.toString().padEnd(16)} ${medRelevant.toString().padEnd(16)} ${goodRelevant.toString().padEnd(16)}`
+  );
+  console.log(
+    `  ${"信号比".padEnd(20)} ${(badSignalRatio + "%").padEnd(15)} ${(medSignalRatio + "%").padEnd(15)} ${(goodSignalRatio + "%").padEnd(15)}`
+  );
+  console.log(
+    `  ${"token 节省".padEnd(20)} ${"—".padEnd(16)} ${`${Math.round((1 - medTokenEst / badTokenEst) * 100)}%`.padEnd(16)} ${`${Math.round((1 - goodTokenEst / badTokenEst) * 100)}%`.padEnd(16)}`
+  );
 
   // ── 6. LLM 真实对比 ──
 
   // 从环境变量读 API key（支持 .env 和 ~/.zshrc 两种来源）
-  const apiKey = process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
+  const apiKey =
+    process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
   const modelName = process.env.LLM_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
-  const baseURL = process.env.LLM_BASE_URL || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1";
+  const baseURL =
+    process.env.LLM_BASE_URL || process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1";
 
   if (!apiKey) {
     console.log("\n⚠️  未找到 API key，跳过 LLM 对比环节");
@@ -261,14 +298,34 @@ const embeddings = new OpenAIEmbeddings({
 
   // 逐个调用（非并行，避免流量限制，同时每个策略输出完整）
   const strategies = [
-    { label: "❌ 坏上下文（全部 + 不裁剪）", messages: badMessages, tokenEst: badTokenEst, signalRatio: badSignalRatio, chunkCount: badChunks.length },
-    { label: "⚠️  中上下文（top-k + 不裁剪）", messages: medMessages, tokenEst: medTokenEst, signalRatio: medSignalRatio, chunkCount: medChunks.length },
-    { label: "✅ 好上下文（top-k + 语义裁剪）", messages: goodMessages, tokenEst: goodTokenEst, signalRatio: goodSignalRatio, chunkCount: goodChunks.length },
+    {
+      label: "❌ 坏上下文（全部 + 不裁剪）",
+      messages: badMessages,
+      tokenEst: badTokenEst,
+      signalRatio: badSignalRatio,
+      chunkCount: badChunks.length,
+    },
+    {
+      label: "⚠️  中上下文（top-k + 不裁剪）",
+      messages: medMessages,
+      tokenEst: medTokenEst,
+      signalRatio: medSignalRatio,
+      chunkCount: medChunks.length,
+    },
+    {
+      label: "✅ 好上下文（top-k + 语义裁剪）",
+      messages: goodMessages,
+      tokenEst: goodTokenEst,
+      signalRatio: goodSignalRatio,
+      chunkCount: goodChunks.length,
+    },
   ];
 
   for (const s of strategies) {
     console.log(`\n  ┌─ ${s.label}`);
-    console.log(`  │   chunks: ${s.chunkCount} | 估算 token: ${s.tokenEst} | 信号比: ${s.signalRatio}%`);
+    console.log(
+      `  │   chunks: ${s.chunkCount} | 估算 token: ${s.tokenEst} | 信号比: ${s.signalRatio}%`
+    );
     console.log(`  │`);
 
     try {
@@ -280,11 +337,16 @@ const embeddings = new OpenAIEmbeddings({
         console.log(`  │  ${line}`);
       }
       if (lines.length < content.split("\n").length) {
-        console.log(`  │  …（共 ${content.length} 字符，${content.split("\n").length} 行，此处仅显示前 12 行）`);
+        console.log(
+          `  │  …（共 ${content.length} 字符，${content.split("\n").length} 行，此处仅显示前 12 行）`
+        );
       }
-      console.log(`  │  ── 回答长度: ${content.length} 字符 | ${estimateTokens(content)} tokens（估算）`);
-    } catch (err: any) {
-      console.log(`  │  ❌ LLM 调用失败: ${err.message}`);
+      console.log(
+        `  │  ── 回答长度: ${content.length} 字符 | ${estimateTokens(content)} tokens（估算）`
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(`  │  ❌ LLM 调用失败: ${message}`);
     }
     console.log(`  └──`);
   }

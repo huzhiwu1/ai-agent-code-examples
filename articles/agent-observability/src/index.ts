@@ -87,20 +87,17 @@ const getWeather = tool(
     schema: z.object({
       city: z.string().describe("城市英文名，如 Shanghai"),
     }),
-  },
+  }
 );
 
-const calculate = tool(
-  async ({ a, b }) => String(a + b),
-  {
-    name: "calculate",
-    description: "两个数相加",
-    schema: z.object({
-      a: z.number(),
-      b: z.number(),
-    }),
-  },
-);
+const calculate = tool(async ({ a, b }) => String(a + b), {
+  name: "calculate",
+  description: "两个数相加",
+  schema: z.object({
+    a: z.number(),
+    b: z.number(),
+  }),
+});
 
 const tools = [getWeather, calculate];
 const toolNode = new ToolNode(tools);
@@ -119,7 +116,7 @@ const AgentState = Annotation.Root({
 });
 
 const SYSTEM_PROMPT = new SystemMessage(
-  "你是助手。查天气用 get_weather，加法用 calculate。用简体中文回答，保持简洁。",
+  "你是助手。查天气用 get_weather，加法用 calculate。用简体中文回答，保持简洁。"
 );
 
 /**
@@ -135,7 +132,7 @@ async function agentNode(state: typeof AgentState.State) {
     `  [console.log 手动追踪] agent 节点返回：` +
       (res.tool_calls?.length
         ? `要调用工具 ${res.tool_calls.map((tc) => tc.name).join(", ")}`
-        : `直接回答（无工具调用）`),
+        : `直接回答（无工具调用）`)
   );
   return { messages: [res] };
 }
@@ -163,7 +160,7 @@ function extractReply(result: { messages: BaseMessage[] }): string {
   if (typeof last.content === "string") return last.content;
   if (Array.isArray(last.content)) {
     return last.content
-      .map((part) => (typeof part === "string" ? part : (part as { text?: string }).text ?? ""))
+      .map((part) => (typeof part === "string" ? part : ((part as { text?: string }).text ?? "")))
       .join("");
   }
   return String(last.content ?? "");
@@ -201,8 +198,10 @@ async function part1WithoutObservability() {
           : "(结构化内容)";
     console.log(`    [${i}] ${role}: ${brief}`);
   });
-  console.log("\n  → 结论：能跑，但一旦出错（选错工具/参数传错/死循环），\n" +
-    "    你只有最终答案和几行自己写的日志，等于盲人摸象。");
+  console.log(
+    "\n  → 结论：能跑，但一旦出错（选错工具/参数传错/死循环），\n" +
+      "    你只有最终答案和几行自己写的日志，等于盲人摸象。"
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,8 +247,12 @@ async function part2WithObservability() {
   if (!langfuseReady) {
     // 没有 key：明确提示 + 优雅降级，用 LangChain 内置 ConsoleCallbackHandler
     // 在本地打印"同一份 trace 结构"（Chain/LLM/Tool 事件树）
-    console.log("  ⚠️ 未配置 Langfuse key（LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY），跳过上报，仅演示本地追踪结构");
-    console.log("  → 降级方案：用 LangChain 内置 ConsoleCallbackHandler 打印本次调用的 trace 事件树：\n");
+    console.log(
+      "  ⚠️ 未配置 Langfuse key（LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY），跳过上报，仅演示本地追踪结构"
+    );
+    console.log(
+      "  → 降级方案：用 LangChain 内置 ConsoleCallbackHandler 打印本次调用的 trace 事件树：\n"
+    );
   }
 
   const agent = buildAgent();
@@ -269,7 +272,7 @@ async function part2WithObservability() {
   const startedAt = Date.now();
   const result = await agent.invoke(
     { messages: [new HumanMessage(QUERY)] },
-    { callbacks: [handler], recursionLimit: 10 },
+    { callbacks: [handler], recursionLimit: 10 }
   );
   const elapsed = Date.now() - startedAt;
 
@@ -279,9 +282,13 @@ async function part2WithObservability() {
   if (langfuseReady && langfuseHandler.last_trace_id) {
     // 真实上报成功：打印 trace URL（cloud.langfuse.com/project/.../traces/xxx）
     console.log(`\n  ✅ trace 已上报 Langfuse，trace id: ${langfuseHandler.last_trace_id}`);
-    console.log(`  🔗 trace URL: ${LANGFUSE_HOST.replace(/\/$/, "")}/trace/${langfuseHandler.last_trace_id}`);
+    console.log(
+      `  🔗 trace URL: ${LANGFUSE_HOST.replace(/\/$/, "")}/trace/${langfuseHandler.last_trace_id}`
+    );
   } else if (!langfuseReady) {
-    console.log(`\n  （以上事件树即 trace 的本地形态；配好 Langfuse key 后，这里会打印真实 trace URL）`);
+    console.log(
+      `\n  （以上事件树即 trace 的本地形态；配好 Langfuse key 后，这里会打印真实 trace URL）`
+    );
     console.log(`  [本地对照] 本次调用总耗时 ${elapsed}ms`);
   } else {
     console.log(`  ⚠️ 没拿到 trace id（可能上报失败），本次耗时 ${elapsed}ms`);
@@ -294,15 +301,17 @@ async function part2WithObservability() {
     } catch (err) {
       // 假 key / 网络不通时这里会报错：如实打出来，不影响演示流程
       console.error(
-        `  ⚠️ Langfuse flush 失败（key 无效或网络不通，trace 未真正落库）：${(err as Error)?.message ?? String(err)}`,
+        `  ⚠️ Langfuse flush 失败（key 无效或网络不通，trace 未真正落库）：${(err as Error)?.message ?? String(err)}`
       );
     }
   }
 
-  console.log("\n  → 结论：trace 能回答三个 console.log 回答不了的问题——\n" +
-    "    ① 模型到底选了哪个工具、传了什么参数（工具调用的入参出参）\n" +
-    "    ② 每一步花了多久（哪个节点是瓶颈）\n" +
-    "    ③ 每次 LLM 调用花了多少 token（成本可量化）");
+  console.log(
+    "\n  → 结论：trace 能回答三个 console.log 回答不了的问题——\n" +
+      "    ① 模型到底选了哪个工具、传了什么参数（工具调用的入参出参）\n" +
+      "    ② 每一步花了多久（哪个节点是瓶颈）\n" +
+      "    ③ 每次 LLM 调用花了多少 token（成本可量化）"
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -315,7 +324,9 @@ async function main() {
     process.exit(1);
   }
   console.log(`模型：${LLM_MODEL} @ ${LLM_BASE_URL}`);
-  console.log(`Langfuse：${LANGFUSE_PUBLIC_KEY ? "已配置 key" : "未配置（将降级为本地 console trace）"} @ ${LANGFUSE_HOST}`);
+  console.log(
+    `Langfuse：${LANGFUSE_PUBLIC_KEY ? "已配置 key" : "未配置（将降级为本地 console trace）"} @ ${LANGFUSE_HOST}`
+  );
 
   try {
     await part1WithoutObservability();

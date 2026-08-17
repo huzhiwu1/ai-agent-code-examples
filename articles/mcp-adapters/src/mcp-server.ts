@@ -213,7 +213,7 @@ function evaluateExpression(expression: string): number {
 
 const server = new McpServer(
   { name: "weather-calc-server", version: "1.0.0" },
-  { capabilities: { tools: {} } },
+  { capabilities: { tools: {} } }
 );
 
 server.registerTool(
@@ -232,7 +232,7 @@ server.registerTool(
     const day = date ?? new Date().toISOString().slice(0, 10);
     const data = fakeWeather(city, day);
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
-  },
+  }
 );
 
 server.registerTool(
@@ -270,7 +270,7 @@ server.registerTool(
         isError: true,
       };
     }
-  },
+  }
 );
 
 /* ------------------------------------------------------------------ */
@@ -281,7 +281,7 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `[mcp-server] weather-calc-server v1.0.0 已启动，监听 stdio（工具: get_weather, calculate）`,
+    `[mcp-server] weather-calc-server v1.0.0 已启动，监听 stdio（工具: get_weather, calculate）`
   );
 }
 
