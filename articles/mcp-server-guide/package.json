@@ -1,0 +1,20 @@
+{
+  "name": "@articles/mcp-server-guide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《怎么规范地写一个 MCP Server？》代码示例：McpServer + registerTool 的生产级规范实现（get_weather / calculate / search_docs + 资源模板），配套 LangGraph + DeepSeek 客户端接入验证",
+  "main": "src/client.ts",
+  "scripts": {
+    "start": "tsx src/client.ts",
+    "server": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/mcp-adapters": "^1.1.3",
+    "@langchain/openai": "^1.5.3",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  }
+}

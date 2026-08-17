@@ -11,6 +11,7 @@
     "run:context-eng": "tsx articles/context-eng/src/index.ts",
     "run:agent-observability": "tsx articles/agent-observability/src/index.ts",
     "run:mcp-tools": "tsx articles/mcp-tools/src/index.ts",
+    "run:mcp-server-guide": "tsx articles/mcp-server-guide/src/client.ts",
     "prepare": "husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
