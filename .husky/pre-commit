@@ -1,0 +1,2 @@
+# pre-commit 钩子：对暂存文件执行 ESLint 修复 + Prettier 格式化
+pnpm exec lint-staged

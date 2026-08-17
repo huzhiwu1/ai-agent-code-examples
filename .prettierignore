@@ -1,0 +1,9 @@
+# 依赖与构建产物
+node_modules
+dist
+
+# 锁文件由 pnpm 自身维护格式，交给 pnpm 处理
+pnpm-lock.yaml
+
+# 环境变量样例包含注释，保持原样
+.env.example
