@@ -7,11 +7,13 @@
     "articles/*"
   ],
   "scripts": {
-    "run:memory": "tsx articles/agent-memory/src/index.ts",
-    "run:context-eng": "tsx articles/context-eng/src/index.ts",
-    "run:agent-observability": "tsx articles/agent-observability/src/index.ts",
-    "run:mcp-tools": "tsx articles/mcp-tools/src/index.ts",
-    "run:mcp-server-guide": "tsx articles/mcp-server-guide/src/client.ts",
+    "run:agentic-rag": "pnpm --filter @articles/agentic-rag run start",
+    "run:memory": "pnpm --filter @articles/agent-memory run start",
+    "run:context-eng": "pnpm --filter @articles/context-eng run start",
+    "run:agent-observability": "pnpm --filter @articles/agent-observability run start",
+    "run:mcp-tools": "pnpm --filter @articles/mcp-tools run start",
+    "run:mcp-server-guide": "pnpm --filter @articles/mcp-server-guide run start",
+    "run:mcp-adapters": "pnpm --filter @articles/mcp-adapters run start",
     "prepare": "husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

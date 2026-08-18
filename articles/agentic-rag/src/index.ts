@@ -6,24 +6,49 @@
  *   Step 2: Agentic RAG（agent 自己判断要不要检索，简单问题直接答）
  *   Step 3: 多跳 Agentic RAG（复杂问题拆解子问题，迭代检索）
  *
- * 运行方式：cd ~/workspace/ai-agent-code-examples && pnpm run run:agentic-rag
- * 预期输出：每一步都打印检索决策 + 检索结果 + AI 回答
+ * 运行方式：
+ *   仓库根目录：pnpm run run:agentic-rag
+ *   本包目录：  pnpm start（或 pnpm dev 监听模式）
  *
- * 环境变量（从根目录 .env 读取）：
- *   LLM_API_KEY / LLM_BASE_URL / LLM_MODEL / EMBEDDING_API_KEY / EMBEDDING_MODEL / EMBEDDING_BASE_URL
+ * 环境变量（从仓库根目录 .env 读取）：
+ *   LLM_API_KEY / LLM_BASE_URL / LLM_MODEL
+ *   EMBEDDING_API_KEY / EMBEDDING_MODEL / EMBEDDING_BASE_URL（可选，缺省回退到 LLM 配置）
  */
 
-import "dotenv/config";
+import * as dotenv from "dotenv";
+import * as path from "node:path";
 import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { Document } from "@langchain/core/documents";
 import { MemoryVectorStore } from "@langchain/classic/vectorstores/memory";
 import { Annotation, MessagesAnnotation, StateGraph, START, END } from "@langchain/langgraph";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+
+// 从仓库根目录加载 .env：路径基于本文件位置推导（src → 仓库根），
+// 无论从根目录还是子包目录启动都能正确读取配置
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
 
 // ============================================================
 // 共享配置
 // ============================================================
+
+/**
+ * 校验必需环境变量：缺失时打印明确指引并退出，
+ * 避免下游抛出难懂的 "Missing credentials" 异常
+ */
+function assertEnv(): void {
+  if (!process.env.LLM_API_KEY) {
+    console.error(
+      "❌ 未找到 LLM_API_KEY 环境变量。\n" +
+        "   请在仓库根目录 .env 中配置（可参考 .env.example），再重新运行示例。"
+    );
+    process.exit(1);
+  }
+}
+
+assertEnv();
+
 const llm = new ChatOpenAI({
   temperature: 0,
   model: process.env.LLM_MODEL || "deepseek-chat",
@@ -31,6 +56,7 @@ const llm = new ChatOpenAI({
   apiKey: process.env.LLM_API_KEY,
 });
 
+// embedding 缺省复用 LLM 的 key 与 base URL，配置了独立的 EMBEDDING_* 时优先使用
 const embeddings = new OpenAIEmbeddings({
   model: process.env.EMBEDDING_MODEL || "text-embedding-v3",
   configuration: { baseURL: process.env.EMBEDDING_BASE_URL || process.env.LLM_BASE_URL },
@@ -71,14 +97,37 @@ const documents = [
 ];
 
 // ============================================================
+// 共享工具：内存向量库（三个 Step 复用，文档只做一次 embedding）
+// ============================================================
+
+/** 惰性构建的内存向量库：三个 Step 共用同一实例，避免重复向量化 */
+let sharedVectorStore: MemoryVectorStore | null = null;
+
+/**
+ * 获取共享向量库，首次调用时用知识库文档构建
+ * @returns 已就绪的内存向量库实例
+ */
+async function getVectorStore(): Promise<MemoryVectorStore> {
+  if (!sharedVectorStore) {
+    sharedVectorStore = await MemoryVectorStore.fromDocuments(documents, embeddings);
+  }
+  return sharedVectorStore;
+}
+
+// ============================================================
 // Step 1: 简单 RAG —— 不管需不需要，都先检索再说
 // ============================================================
-async function step1SimpleRAG() {
+
+/**
+ * Step 1：固定流程 retrieve → generate。
+ * 无论问题是否需要知识库都会先检索，是对比基准。
+ */
+async function step1SimpleRAG(): Promise<void> {
   console.log("=".repeat(60));
   console.log("Step 1: 简单 RAG（retrieve → generate）");
   console.log("=".repeat(60));
 
-  const vectorStore = await MemoryVectorStore.fromDocuments(documents, embeddings);
+  const vectorStore = await getVectorStore();
   const retriever = vectorStore.asRetriever({ k: 3 });
 
   const GraphState = Annotation.Root({
@@ -128,21 +177,36 @@ ${context}
 }
 
 // ============================================================
-// Step 2: Agentic RAG —— agent 自己判断要不要检索
+// Step 2 & 3 共享：检索工具 + agent 循环图
 // ============================================================
-async function step2AgenticRAG() {
-  console.log("\n" + "=".repeat(60));
-  console.log("Step 2: Agentic RAG（agent 决定是否检索）");
-  console.log("=".repeat(60));
 
-  const vectorStore = await MemoryVectorStore.fromDocuments(documents, embeddings);
+/**
+ * 图路由：agent 最后一条消息若携带 tool_calls 则进入 tools 节点，否则结束
+ * @param state 当前图状态
+ * @returns "tools"（继续检索）或 END（直接结束）
+ */
+function routeAfterAgent(state: typeof MessagesAnnotation.State): string {
+  const lastMsg = state.messages[state.messages.length - 1];
+  const toolCalls = (lastMsg as { tool_calls?: unknown[] }).tool_calls ?? [];
+  return toolCalls.length > 0 ? "tools" : END;
+}
 
-  // 关键：检索变成 agent 的一个工具，agent 自己决定调不调
+/**
+ * 构建「agent ⇄ 检索工具」循环图：
+ * agent 先思考，决定需要知识库时调用 search_knowledge_base，拿到结果后继续思考，直到直接作答。
+ * @param vectorStore 共享的内存向量库
+ * @param topK 每次检索返回的文档条数
+ * @param systemPrompt 可选的系统提示词（用于引导复杂问题拆解检索）
+ * @returns 编译好的 LangGraph 图
+ */
+function buildAgentGraph(vectorStore: MemoryVectorStore, topK: number, systemPrompt?: string) {
+  // 关键：检索是 agent 的一个工具，agent 自行决定是否调用、调用几次
   const retrieveTool = tool(
     async ({ query }: { query: string }) => {
-      const docs = await vectorStore.similaritySearch(query, 3);
+      const docs = await vectorStore.similaritySearch(query, topK);
       const results = docs.map(
-        (d, i) => `[${i + 1}] (章节 ${d.metadata.chapter}) ${d.pageContent}`
+        (d, i) =>
+          `[${i + 1}] (章节 ${d.metadata.chapter}, 角色: ${d.metadata.character}) ${d.pageContent}`
       );
       console.log(`  [检索工具] 查询 "${query}" → 命中 ${docs.length} 条`);
       return results.join("\n");
@@ -150,7 +214,7 @@ async function step2AgenticRAG() {
     {
       name: "search_knowledge_base",
       description:
-        "搜索故事知识库，获取故事人物的信息和情节。当你需要回答关于故事内容的问题时调用此工具。",
+        "搜索故事知识库，获取故事人物的信息和情节。需要回答故事内容相关问题时调用此工具；复杂问题可分多次调用，每次检索一个子问题。",
       schema: z.object({ query: z.string().describe("检索查询语句") }),
     }
   );
@@ -158,25 +222,35 @@ async function step2AgenticRAG() {
   const llmWithTools = llm.bindTools([retrieveTool]);
 
   const callModel = async (state: typeof MessagesAnnotation.State) => {
-    const response = await llmWithTools.invoke(state.messages);
+    const messages = systemPrompt
+      ? [{ role: "system" as const, content: systemPrompt }, ...state.messages]
+      : state.messages;
+    const response = await llmWithTools.invoke(messages);
     return { messages: [response] };
   };
 
-  // 路由：如果返回了 tool_calls，去检索；否则结束
-  const routeTools = (state: typeof MessagesAnnotation.State) => {
-    const lastMsg = state.messages[state.messages.length - 1];
-    const toolCalls = (lastMsg as { tool_calls?: unknown[] }).tool_calls ?? [];
-    if (toolCalls.length > 0) return "tools";
-    return END;
-  };
-
-  const graph = new StateGraph(MessagesAnnotation)
+  return new StateGraph(MessagesAnnotation)
     .addNode("agent", callModel)
     .addNode("tools", new ToolNode([retrieveTool]))
     .addEdge(START, "agent")
-    .addConditionalEdges("agent", routeTools)
+    .addConditionalEdges("agent", routeAfterAgent)
     .addEdge("tools", "agent")
     .compile();
+}
+
+// ============================================================
+// Step 2: Agentic RAG —— agent 自己判断要不要检索
+// ============================================================
+
+/**
+ * Step 2：检索变成 agent 的工具，agent 对简单问题（如 1+1）直接作答，不浪费检索
+ */
+async function step2AgenticRAG(): Promise<void> {
+  console.log("\n" + "=".repeat(60));
+  console.log("Step 2: Agentic RAG（agent 决定是否检索）");
+  console.log("=".repeat(60));
+
+  const graph = buildAgentGraph(await getVectorStore(), 3);
 
   // 问题1：需要检索
   console.log('\n  问题1: "光光最好的朋友是谁？"');
@@ -199,57 +273,18 @@ async function step2AgenticRAG() {
 // ============================================================
 // Step 3: 多跳 Agentic RAG（复杂问题拆解，迭代检索）
 // ============================================================
-async function step3MultiHopAgenticRAG() {
+
+/**
+ * Step 3：复杂问题由 agent 拆成子问题，迭代调用检索工具后再综合作答
+ */
+async function step3MultiHopAgenticRAG(): Promise<void> {
   console.log("\n" + "=".repeat(60));
   console.log("Step 3: 多跳 Agentic RAG（拆解复杂问题，迭代检索）");
   console.log("=".repeat(60));
 
-  const vectorStore = await MemoryVectorStore.fromDocuments(documents, embeddings);
-
-  const retrieveTool = tool(
-    async ({ query }: { query: string }) => {
-      const docs = await vectorStore.similaritySearch(query, 4);
-      const results = docs.map(
-        (d, i) =>
-          `[${i + 1}] (章节 ${d.metadata.chapter}, 角色: ${d.metadata.character}) ${d.pageContent}`
-      );
-      console.log(`  [检索] "${query}" → ${docs.length} 条`);
-      return results.join("\n");
-    },
-    {
-      name: "search_knowledge_base",
-      description:
-        "搜索故事知识库。对于需要多步推理的复杂问题，请分多次调用此工具，每次查询不同的子问题。",
-      schema: z.object({ query: z.string().describe("检索查询") }),
-    }
-  );
-
-  const llmWithTools = llm.bindTools([retrieveTool]);
-
-  const callModel = async (state: typeof MessagesAnnotation.State) => {
-    const systemMsg = {
-      role: "system" as const,
-      content:
-        "你是故事问答助手。对于复杂问题，用 search_knowledge_base 工具分步检索，每次查一个子问题，然后综合所有检索结果回答。",
-    };
-    const response = await llmWithTools.invoke([systemMsg, ...state.messages]);
-    return { messages: [response] };
-  };
-
-  const routeTools = (state: typeof MessagesAnnotation.State) => {
-    const lastMsg = state.messages[state.messages.length - 1];
-    const toolCalls = (lastMsg as { tool_calls?: unknown[] }).tool_calls ?? [];
-    if (toolCalls.length > 0) return "tools";
-    return END;
-  };
-
-  const graph = new StateGraph(MessagesAnnotation)
-    .addNode("agent", callModel)
-    .addNode("tools", new ToolNode([retrieveTool]))
-    .addEdge(START, "agent")
-    .addConditionalEdges("agent", routeTools)
-    .addEdge("tools", "agent")
-    .compile();
+  const systemPrompt =
+    "你是故事问答助手。对于复杂问题，用 search_knowledge_base 工具分步检索，每次查一个子问题，然后综合所有检索结果回答。";
+  const graph = buildAgentGraph(await getVectorStore(), 4, systemPrompt);
 
   const question = "光光最好的朋友是谁？他后来成为了什么？他们之间发生了什么故事？";
   console.log(`\n  问题: "${question}"`);
@@ -263,9 +298,9 @@ async function step3MultiHopAgenticRAG() {
 // ============================================================
 // 主入口
 // ============================================================
-import { ToolNode } from "@langchain/langgraph/prebuilt";
 
-async function main() {
+/** 依次演示三个 Step，展示从简单 RAG 到 Agentic RAG 的演进 */
+async function main(): Promise<void> {
   console.log("🤖 Agentic RAG 渐进式示例\n");
   await step1SimpleRAG();
   await step2AgenticRAG();

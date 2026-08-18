@@ -137,14 +137,21 @@ function toolSchemaSummary(tool: { name: string; description: string; schema: un
   }
   return Object.entries(props)
     .map(([k, v]) => {
+      // 每个属性在 JSON Schema 里是一个 { type, description, default?, enum? } 对象
+      const p = v as {
+        type?: string;
+        description?: string;
+        default?: unknown;
+        enum?: string[];
+      };
       const req = s?.required?.includes(k) ? "必填" : "可选";
-      const desc = v.description ? `，${v.description}` : "";
+      const desc = p.description ? `，${p.description}` : "";
       const def =
-        v.default !== undefined && !desc.includes("默认")
-          ? `，默认 ${JSON.stringify(v.default)}`
+        p.default !== undefined && !desc.includes("默认")
+          ? `，默认 ${JSON.stringify(p.default)}`
           : "";
-      const enumHint = v.enum ? `（可选值: ${v.enum.join("/")}）` : "";
-      return `      ${k}: ${v.type}${enumHint}${desc}${def} [${req}]`;
+      const enumHint = p.enum ? `（可选值: ${p.enum.join("/")}）` : "";
+      return `      ${k}: ${p.type}${enumHint}${desc}${def} [${req}]`;
     })
     .join("\n");
 }
