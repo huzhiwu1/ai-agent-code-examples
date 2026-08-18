@@ -237,8 +237,9 @@ async function runPlanWithReplan(task: string): Promise<void> {
     console.log(`      工具: ${step.tool}, 参数: ${JSON.stringify(step.args)}`);
   }
 
-  // 验证重规划结果
-  const replanValidation = validatePlan(newPlanSteps);
+  // 验证重规划结果（新计划可依赖已完成步骤，传入 knownStepIds 避免误报）
+  const doneIds = new Set(context.done.map((d) => d.id));
+  const replanValidation = validatePlan(newPlanSteps, doneIds);
   if (!replanValidation.valid) {
     console.log("\n⚠️ 重规划验证发现问题:");
     for (const err of replanValidation.errors) console.log(`   - ${err}`);

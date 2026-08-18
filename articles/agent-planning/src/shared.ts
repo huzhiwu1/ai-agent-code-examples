@@ -292,9 +292,13 @@ export async function generatePlan(task: string): Promise<PlanStep[]> {
  * 真实场景中，LLM 生成的计划可能有误（引用了不存在的工具、循环依赖等），
  * 在执行前验证可以避免运行时崩溃。
  */
-export function validatePlan(steps: PlanStep[]): { valid: boolean; errors: string[] } {
+export function validatePlan(
+  steps: PlanStep[],
+  knownStepIds: Set<string> = new Set()
+): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
-  const stepIds = new Set(steps.map((s) => s.id));
+  // 已知步骤 = 新计划步骤 + 外部已完成的步骤（replan 场景：新计划可依赖已完成步骤）
+  const stepIds = new Set([...steps.map((s) => s.id), ...knownStepIds]);
   const validTools: Set<string> = new Set(tools.map((t) => t.name));
 
   // 1. 检查每个步骤的工具和依赖
