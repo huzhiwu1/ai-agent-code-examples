@@ -10,9 +10,10 @@
  *   - 主循环（编排层）：Planner 生成计划 → 循环调度 Executor 执行 → 汇总
  *
  * 对应真实源码：
+ *   - LangGraph Plan-and-Execute 设计模式（LangChain Blog, 2024/02）—
+ *     Planner 生成计划 + Agent 执行单步，两个独立节点
  *   - deepagents 的 createDeepAgent（Planner/Executor 分离）
- *   - LangGraph Plan-and-Execute 教程的 planner/executor 双节点
- *   - dsh 的 subagent 模式（规划者调度执行者）
+ *   - 核心思想：用大模型做规划，用小模型/确定性执行器做执行，降本增效
  *
  * 与 Step 03 的区别：
  *   - Step 03：一个 LLM 既规划又执行（通过不同 prompt 阶段切换）
@@ -24,7 +25,17 @@
 
 import "dotenv/config";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { llm, TASK, PlanSchema, PlanStep, StepState, createStepState, toolMap } from "../shared";
+import {
+  llm,
+  TASK,
+  PlanSchema,
+  PlanStep,
+  StepState,
+  createStepState,
+  toolMap,
+  validatePlan,
+  aggregateResults,
+} from "../shared";
 
 // ──────────────── Planner：只规划，不执行 ────────────────
 // 独立 LLM 实例，prompt 锁定"只输出计划"，没有任何工具绑定
@@ -39,10 +50,16 @@ const PLANNER_SYSTEM_PROMPT = new SystemMessage(
     "你【不执行】任何工具，也不回答任务本身，只输出 JSON 计划。\n\n" +
     "规则：\n" +
     "1. 分析任务需要哪些步骤\n" +
-    "2. 确定每个步骤要用哪个工具（可选：get_user_info、get_orders、calculate_discount、generate_report）\n" +
+    "2. 确定每个步骤要用哪个工具，并填写正确的 args 参数\n" +
     "3. 确定依赖关系（depends_on）：calculate_discount 依赖 get_user_info/get_orders 的结果，\n" +
     "   generate_report 依赖所有前面的步骤\n" +
-    "4. 每个步骤的 id 必须是 step-1, step-2, ... 格式"
+    "4. 每个步骤的 id 必须是 step-1, step-2, ... 格式\n\n" +
+    "## 可用工具及其参数\n" +
+    "- get_user_info: { userId: string } — 根据用户名或用户 ID 查询用户信息\n" +
+    "- get_orders: { userId: string } — 查询指定用户的订单历史\n" +
+    "- calculate_discount: { totalAmount: number, userTier: '普通'|'白银'|'黄金'|'VIP' } — 计算折扣\n" +
+    "- generate_report: { sections: string[] } — 生成用户报告\n\n" +
+    "重要：args 必须填写工具所需的全部参数，不要留空。"
 );
 
 async function planOnly(task: string): Promise<PlanStep[]> {
@@ -52,41 +69,25 @@ async function planOnly(task: string): Promise<PlanStep[]> {
 
 // ──────────────── Executor：只执行单步，不重新规划 ────────────────
 // 每次执行一个步骤：给出步骤定义 + 已完成上下文，返回该步结果
+// Executor 是确定性执行器，不依赖 LLM，直接调用工具
 
-const EXECUTOR_SYSTEM_PROMPT = new SystemMessage(
-  "你是一个任务执行器。你会收到：一个待执行的步骤定义、以及之前已完成步骤的结果。\n" +
-    "你的唯一职责：执行这个步骤（调用对应工具），返回结果。\n" +
-    "你【不修改计划】、【不跳过步骤】、【不调用计划外的工具】。"
-);
-
+/**
+ * 执行单步：给定步骤定义 + 已完成上下文，调用对应工具返回结果
+ *
+ * Executor 是确定性执行器，不依赖 LLM：拿到工具名和参数，直接执行。
+ * 这里的 console.log 仅用于演示 Executor 收到的上下文信息。
+ */
 async function executeOneStep(
   step: PlanStep,
   doneContext: { id: string; description: string; result: string }[]
 ): Promise<string> {
-  // 先展示执行器如何理解这一步（真实实现中直接调工具；这里保留 LLM 决策层演示）
   const contextStr = doneContext
     .map((d) => `  ${d.id} (${d.description}): ${d.result.slice(0, 80)}`)
     .join("\n");
 
-  const stepDef = JSON.stringify(
-    { id: step.id, description: step.description, tool: step.tool, args: step.args },
-    null,
-    2
-  );
+  console.log(`  💬 执行器上下文（已完成步骤）:\n${contextStr || "  (无)"}`);
 
-  const decision = await llm.invoke([
-    EXECUTOR_SYSTEM_PROMPT,
-    new HumanMessage(
-      `待执行步骤:\n${stepDef}\n\n已完成步骤:\n${contextStr || "  (无)"}\n\n` +
-        `请确认你理解要执行的步骤（一句话），然后我将调用工具。`
-    ),
-  ]);
-
-  const decisionText =
-    typeof decision.content === "string" ? decision.content : JSON.stringify(decision.content);
-  console.log(`  💬 执行器确认: ${decisionText.slice(0, 100)}`);
-
-  // 实际执行：查工具映射，调用工具（真实架构中这一步由编排层完成）
+  // 实际执行：查工具映射，调用工具（真实架构中 Executor 就是确定性执行，不依赖 LLM）
   const tool = toolMap.get(step.tool);
   if (!tool) throw new Error(`未知工具: ${step.tool}`);
   return tool.invoke(step.args);
@@ -98,6 +99,14 @@ async function orchestrate(task: string): Promise<Map<string, StepState>> {
   // 1. Planner 生成计划
   console.log("── 阶段 1: Planner 生成计划 ──\n");
   const steps = await planOnly(task);
+
+  // 验证计划
+  const validation = validatePlan(steps);
+  if (!validation.valid) {
+    console.log("⚠️ 计划验证发现问题:");
+    for (const err of validation.errors) console.log(`   - ${err}`);
+  }
+
   console.log(`计划步骤 (${steps.length} 步):\n`);
   for (const step of steps) {
     const deps =
@@ -166,27 +175,6 @@ async function orchestrate(task: string): Promise<Map<string, StepState>> {
   }
 
   return stateMap;
-}
-
-/** 结果汇总（同 Step 03，首次定义在 step-03，这里内联复用逻辑） */
-function aggregateResults(stateMap: Map<string, StepState>): string {
-  const entries = [...stateMap.entries()];
-  const done = entries.filter(([, s]) => s.status === "done");
-  const failed = entries.filter(([, s]) => s.status === "failed");
-
-  const lines: string[] = [];
-  lines.push("=== 计划执行结果汇总 ===");
-  lines.push(`总步骤: ${stateMap.size} | 成功: ${done.length} | 失败: ${failed.length}`);
-
-  for (const [, s] of entries) {
-    const icon = s.status === "done" ? "✅" : s.status === "failed" ? "❌" : "⏳";
-    lines.push(`${icon} ${s.step.id} [${s.status}] ${s.step.description}`);
-    if (s.result) {
-      lines.push(`   结果: ${s.result.length > 150 ? s.result.slice(0, 150) + "..." : s.result}`);
-    }
-    if (s.error) lines.push(`   错误: ${s.error}`);
-  }
-  return lines.join("\n");
 }
 
 export async function main() {

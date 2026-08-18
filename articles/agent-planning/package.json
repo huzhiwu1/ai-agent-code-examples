@@ -2,7 +2,7 @@
   "name": "@articles/agent-planning",
   "version": "1.0.0",
   "private": true,
-  "description": "《Agent 怎么\"先想再做\"？从直答到 Plan-and-Execute 的动态规划》代码示例（5 步渐进式）",
+  "description": "《Agent 怎么\"先想再做\"？从直答到 Plan-and-Execute 的动态规划》代码示例（7 步渐进式）",
   "main": "src/index.ts",
   "scripts": {
     "start": "tsx src/index.ts",
@@ -11,6 +11,8 @@
     "start:step3": "tsx src/steps/step-03-tool-loop.ts",
     "start:step4": "tsx src/steps/step-04-planner-executor.ts",
     "start:step5": "tsx src/steps/step-05-replan.ts",
+    "start:step6": "tsx src/steps/step-06-langgraph-plan.ts",
+    "start:step7": "tsx src/steps/step-07-replan-reflection.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

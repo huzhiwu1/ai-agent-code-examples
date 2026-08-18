@@ -13,38 +13,23 @@
  *   - 步骤状态机：pending → in_progress → done / failed
  *   - 依赖检查：depends_on 全部 done 才允许执行
  *   - 结果回填：每步结果存 stateMap，后续步骤执行时可引用
- *   - 对应源码：dsh 的 planner 插件 / LangGraph Plan-and-Execute 教程
+ *   - 对应源码：LLMCompiler 的 DAG 依赖调度（Kim et al., 2023）；
+ *     ReWOO 的变量引用与步骤间数据传递（Xu et al., 2023）
  *
  * 跑法：pnpm run:planning --step3 （或 pnpm --filter @articles/agent-planning run start:step3）
  */
 
 import "dotenv/config";
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { llm, TASK, PlanSchema, PlanStep, StepState, createStepState, toolMap } from "../shared";
-
-/** 生成计划（与 Step 02 相同，首次定义在 shared.ts 复用） */
-async function generatePlan(task: string): Promise<PlanStep[]> {
-  const planLLM = llm.withStructuredOutput(PlanSchema, {
-    method: "functionCalling",
-    name: "generate_plan",
-  });
-
-  const systemPrompt = new SystemMessage(
-    "你是一个任务规划助手。用户会给你一个多步任务，你需要：\n" +
-      "1. 分析任务需要哪些步骤\n" +
-      "2. 确定每个步骤要用哪个工具（可选工具：get_user_info、get_orders、calculate_discount、generate_report）\n" +
-      "3. 确定步骤间的依赖关系（depends_on）\n" +
-      "4. 输出 JSON 格式的计划\n\n" +
-      "注意：\n" +
-      "- get_user_info 和 get_orders 没有依赖关系，可以并行执行\n" +
-      "- calculate_discount 依赖前两步的结果\n" +
-      "- generate_report 依赖所有前面的步骤\n" +
-      "- 每个步骤的 id 必须是 step-1, step-2, ... 格式"
-  );
-
-  const result = await planLLM.invoke([systemPrompt, new HumanMessage(task)]);
-  return (result as unknown as { steps: PlanStep[] }).steps;
-}
+import {
+  TASK,
+  PlanStep,
+  StepState,
+  createStepState,
+  toolMap,
+  generatePlan,
+  validatePlan,
+  aggregateResults,
+} from "../shared";
 
 /**
  * 闭环执行：依赖调度版
@@ -124,27 +109,6 @@ async function executePlanClosedLoop(steps: PlanStep[]): Promise<Map<string, Ste
   return stateMap;
 }
 
-/** 结果汇总 */
-function aggregateResults(stateMap: Map<string, StepState>): string {
-  const entries = [...stateMap.entries()];
-  const done = entries.filter(([, s]) => s.status === "done");
-  const failed = entries.filter(([, s]) => s.status === "failed");
-
-  const lines: string[] = [];
-  lines.push("=== 计划执行结果汇总 ===");
-  lines.push(`总步骤: ${stateMap.size} | 成功: ${done.length} | 失败: ${failed.length}`);
-
-  for (const [, s] of entries) {
-    const icon = s.status === "done" ? "✅" : s.status === "failed" ? "❌" : "⏳";
-    lines.push(`${icon} ${s.step.id} [${s.status}] ${s.step.description}`);
-    if (s.result) {
-      lines.push(`   结果: ${s.result.length > 150 ? s.result.slice(0, 150) + "..." : s.result}`);
-    }
-    if (s.error) lines.push(`   错误: ${s.error}`);
-  }
-  return lines.join("\n");
-}
-
 export async function main() {
   console.log("=".repeat(72));
   console.log("Step 03: 计划 + 工具闭环 — 依赖调度 + 结果回填");
@@ -155,6 +119,14 @@ export async function main() {
   // 阶段 1：生成计划
   console.log("── 阶段 1: 计划生成 ──\n");
   const steps = await generatePlan(TASK);
+
+  // 验证计划
+  const validation = validatePlan(steps);
+  if (!validation.valid) {
+    console.log("⚠️ 计划验证发现问题:");
+    for (const err of validation.errors) console.log(`   - ${err}`);
+  }
+
   console.log(`计划步骤 (${steps.length} 步):\n`);
   for (const step of steps) {
     const deps =
