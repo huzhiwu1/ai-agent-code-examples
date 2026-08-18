@@ -1,0 +1,21 @@
+{
+  "name": "agentic-rag",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "run": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/classic": "^1.0.7",
+    "@langchain/core": "^1.1.8",
+    "@langchain/langgraph": "^1.2.9",
+    "@langchain/openai": "^1.2.0",
+    "@langchain/textsplitters": "^1.0.1",
+    "dotenv": "^17.2.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
