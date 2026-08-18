@@ -48,7 +48,7 @@ function maskKey(key: string): string {
 function ensureEnv(): void {
   const envFile = path.join(REPO_ROOT, ".env");
   if (fs.existsSync(envFile)) {
-    dotenv.config({ path: envFile });
+    dotenv.config({ path: envFile, override: true });
     return;
   }
   // 兜底：从 ~/.zshrc 里找 DEEPSEEK_API_KEY / LLM_API_KEY
@@ -74,7 +74,7 @@ function ensureEnv(): void {
     "",
   ].join("\n");
   fs.writeFileSync(envFile, envContent, { mode: 0o600 });
-  dotenv.config({ path: envFile });
+  dotenv.config({ path: envFile, override: true });
   console.log(`ℹ️  根目录无 .env，已从 ~/.zshrc 生成（key 已写入 ${envFile}，不外显）`);
 }
 

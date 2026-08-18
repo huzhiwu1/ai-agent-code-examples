@@ -50,7 +50,7 @@ try {
 }
 
 // 加载仓库根目录 .env
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
 
 /* ================================================================== */
 /* 0. 配置                                                             */

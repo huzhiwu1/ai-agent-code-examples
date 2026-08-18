@@ -43,7 +43,7 @@ import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 
 // 加载仓库根目录的 .env（LLM + Langfuse 配置都在那里）
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
 
 // 短生命周期脚本：关掉 LangChain 后台 callback，确保 flush 前把 trace 写完
 process.env.LANGCHAIN_CALLBACKS_BACKGROUND = "false";

@@ -36,7 +36,7 @@ import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../.."); // articles/mcp-server-guide/src -> 仓库根
-dotenv.config({ path: path.join(REPO_ROOT, ".env"), quiet: true });
+dotenv.config({ path: path.join(REPO_ROOT, ".env"), quiet: true, override: true });
 
 const MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
 const BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com";

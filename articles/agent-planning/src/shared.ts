@@ -181,7 +181,12 @@ function resolveValue(value: unknown, stepStates: StepStateContainer): unknown {
     // $ref:step-N 或 $ref:step-N.field：取引用值
     const refMatch = value.match(/^\$ref:([\w.-]+)$/);
     if (refMatch) {
-      return getRefData(refMatch[1], stepStates);
+      const data = getRefData(refMatch[1], stepStates);
+      // 对象/数组自动转 JSON 字符串（如 generate_report 的 sections: string[] 引用完整步骤结果）
+      if (data !== undefined && typeof data === "object") {
+        return JSON.stringify(data);
+      }
+      return data;
     }
     return value;
   }

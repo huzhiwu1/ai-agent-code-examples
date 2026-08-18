@@ -28,7 +28,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { SystemMessage, HumanMessage, BaseMessage } from "@langchain/core/messages";
 
 // 加载仓库根目录的 .env（LLM 网关配置）
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
 
 const MODEL = process.env.LLM_MODEL ?? "deepseek-v4-flash";
 const BASE_URL = process.env.LLM_BASE_URL ?? "https://llm.gw.dachensky.com/v1";

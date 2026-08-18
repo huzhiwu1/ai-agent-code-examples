@@ -34,7 +34,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../.."); // articles/mcp-tools/src -> 仓库根
-dotenv.config({ path: path.join(REPO_ROOT, ".env") });
+dotenv.config({ path: path.join(REPO_ROOT, ".env"), override: true });
 
 const MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
 const BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com";

@@ -24,7 +24,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, tool } from "langchain";
 import { z } from "zod";
 
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
 
 const API_KEY = process.env.LLM_API_KEY ?? "";
 const BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com";

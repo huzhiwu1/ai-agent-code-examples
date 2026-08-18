@@ -29,7 +29,7 @@ import { z } from "zod";
 
 // 从仓库根目录加载 .env：路径基于本文件位置推导（src → 仓库根），
 // 无论从根目录还是子包目录启动都能正确读取配置
-dotenv.config({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), quiet: true, override: true });
 
 // ============================================================
 // 共享配置

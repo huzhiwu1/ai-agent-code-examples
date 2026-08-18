@@ -15,8 +15,8 @@ import dotenv from "dotenv";
 import path from "path";
 
 // 加载仓库根目录 .env
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
+dotenv.config({ override: true });
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { MemoryVectorStore } from "@langchain/classic/vectorstores/memory";
 import { OpenAIEmbeddings } from "@langchain/openai";
