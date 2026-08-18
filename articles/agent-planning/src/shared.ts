@@ -19,7 +19,7 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
 // ──────────────── LLM 初始化 ────────────────
 
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env"), override: true });
 
 export const MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
 export const BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com";
@@ -129,6 +129,110 @@ for (const t of tools) {
   toolMap.set(t.name, t);
 }
 
+// ──────────────── 参数引用解析（解决"计划参数静态化"问题） ────────────────
+
+/** 步骤状态容器：Map 或 Record 都支持（step-02~05 用 Map，step-06/07 LangGraph 用 Record） */
+type StepStateContainer = Map<string, StepState> | Record<string, StepState>;
+
+function getStepState(container: StepStateContainer, id: string): StepState | undefined {
+  if (container instanceof Map) return container.get(id);
+  return container[id];
+}
+
+/**
+ * 解析步骤参数中的引用语法，让计划参数可以动态引用前序步骤的结果。
+ *
+ * 问题背景（Step 02-06 的真实坑）：
+ *   LLM 生成计划时不知道执行后的数据，calculate_discount 的 totalAmount
+ *   只能填占位值 0，导致计算结果全为 0——"流程跑通但结果是错的"。
+ *
+ * 解决：LLM 在 args 里写引用语法，执行前用本函数替换成真实值：
+ *   - "$ref:step-1"           → step-1 的完整结果（JSON 解析后）
+ *   - "$ref:step-1.level"     → step-1 结果里的 level 字段
+ *   - "$ref:step-2.amount"    → step-2 结果（数组）里每个元素的 amount 组成的数组
+ *   - "$sum($ref:step-2.amount)" → 对上面那个数组求和（订单总金额）
+ *   - 数组/对象内嵌的字符串引用也会被递归解析
+ *
+ * 对应真实设计：LLMCompiler 的 $ref 依赖引用语法 + 执行时动态解析。
+ */
+export function resolveArgs(
+  args: Record<string, unknown>,
+  stepStates: StepStateContainer
+): Record<string, unknown> {
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    resolved[key] = resolveValue(value, stepStates);
+  }
+  return resolved;
+}
+
+/** 递归解析单个值：字符串引用 → 真实值；数组/对象 → 逐元素解析 */
+function resolveValue(value: unknown, stepStates: StepStateContainer): unknown {
+  if (typeof value === "string") {
+    // $sum($ref:step-N.field)：对引用结果（数组）求和
+    const sumMatch = value.match(/^\$sum\(\$ref:([\w.-]+)\)$/);
+    if (sumMatch) {
+      const data = getRefData(sumMatch[1], stepStates);
+      if (Array.isArray(data)) {
+        return data.reduce((sum, item) => sum + (Number(item) || 0), 0);
+      }
+      return 0;
+    }
+    // $ref:step-N 或 $ref:step-N.field：取引用值
+    const refMatch = value.match(/^\$ref:([\w.-]+)$/);
+    if (refMatch) {
+      return getRefData(refMatch[1], stepStates);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => resolveValue(v, stepStates));
+  }
+  if (value && typeof value === "object") {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = resolveValue(v, stepStates);
+    }
+    return obj;
+  }
+  return value;
+}
+
+/** 按路径从已完成步骤的结果中取数据 */
+function getRefData(path: string, stepStates: StepStateContainer): unknown {
+  const [stepId, ...rest] = path.split(".");
+  const state = getStepState(stepStates, stepId);
+  if (!state?.result) return undefined;
+
+  // 结果存的是 JSON 字符串，先解析
+  let data: unknown;
+  try {
+    data = JSON.parse(state.result);
+  } catch {
+    data = state.result;
+  }
+
+  for (const key of rest) {
+    if (Array.isArray(data)) {
+      if (/^\d+$/.test(key)) {
+        data = data[Number(key)]; // 数组按索引取
+      } else {
+        // 数组按字段取：返回每个元素的该字段组成的数组
+        data = data
+          .map((item) =>
+            item && typeof item === "object" ? (item as Record<string, unknown>)[key] : undefined
+          )
+          .filter((v) => v !== undefined);
+      }
+    } else if (data && typeof data === "object") {
+      data = (data as Record<string, unknown>)[key];
+    } else {
+      return undefined;
+    }
+  }
+  return data;
+}
+
 // ──────────────── 计划生成（多步复用） ────────────────
 
 /**
@@ -155,12 +259,20 @@ export async function generatePlan(task: string): Promise<PlanStep[]> {
       "- get_orders: { userId: string } — 查询指定用户的订单历史\n" +
       "- calculate_discount: { totalAmount: number, userTier: '普通'|'白银'|'黄金'|'VIP' } — 计算折扣\n" +
       "- generate_report: { sections: string[] } — 生成用户报告\n\n" +
-      "注意：\n" +
+      "## 参数引用语法（重要）\n" +
+      "如果某步骤的参数依赖前序步骤的结果，**不要填占位值（如 0、'普通'）**，" +
+      "而是用引用语法，执行时会自动替换成真实值：\n" +
+      '- "$ref:step-1" → step-1 的完整结果\n' +
+      '- "$ref:step-1.level" → step-1 结果里的 level 字段\n' +
+      '- "$ref:step-2.amount" → step-2 结果（数组）里每个元素的 amount 组成的数组\n' +
+      '- "$sum($ref:step-2.amount)" → 对上面那个数组求和（订单总金额）\n\n' +
+      "## 注意\n" +
       "- get_user_info 和 get_orders 没有依赖关系，可以并行执行\n" +
-      "- calculate_discount 依赖前两步的结果（totalAmount 从订单汇总，userTier 从用户信息获取）\n" +
-      "- generate_report 依赖所有前面的步骤\n" +
+      '- calculate_discount 依赖前两步：totalAmount 用 "$sum($ref:step-2.amount)"（订单金额求和），' +
+      'userTier 用 "$ref:step-1.level"（用户等级）\n' +
+      '- generate_report 依赖所有前面的步骤，sections 里可以引用各步结果（如 "$ref:step-3"）\n' +
       "- 每个步骤的 id 必须是 step-1, step-2, ... 格式\n" +
-      "- args 必须填写工具所需的全部参数，不要留空"
+      "- 不依赖前序结果的参数（如 userId）直接填字面值"
   );
 
   const result = await planLLM.invoke([systemPrompt, new HumanMessage(task)]);

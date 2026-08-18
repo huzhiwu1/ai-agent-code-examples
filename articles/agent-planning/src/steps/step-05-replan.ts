@@ -33,6 +33,7 @@ import {
   generatePlan,
   validatePlan,
   aggregateResults,
+  resolveArgs,
 } from "../shared";
 
 /** 构造执行上下文（已完成/失败步骤），用于重规划 */
@@ -182,7 +183,9 @@ async function runPlanWithReplan(task: string): Promise<void> {
       try {
         const tool = toolMap.get(step.tool);
         if (!tool) throw new Error(`未知工具: ${step.tool}`);
-        const rawResult = await tool.invoke(step.args);
+        // 参数引用解析：$ref:step-1 / $sum($ref:step-2.amount) → 真实值
+        const resolvedArgs = resolveArgs(step.args, stateMap);
+        const rawResult = await tool.invoke(resolvedArgs);
         stepState.result = rawResult;
         stepState.status = "done";
         console.log(`  ✅ ${step.id} 完成\n`);
@@ -280,7 +283,9 @@ async function runPlanWithReplan(task: string): Promise<void> {
       try {
         const tool = toolMap.get(step.tool);
         if (!tool) throw new Error(`未知工具: ${step.tool}`);
-        const rawResult = await tool.invoke(step.args);
+        // 参数引用解析：$ref:step-1 / $sum($ref:step-2.amount) → 真实值
+        const resolvedArgs = resolveArgs(step.args, stateMap);
+        const rawResult = await tool.invoke(resolvedArgs);
         stepState.result = rawResult;
         stepState.status = "done";
         const preview = rawResult.length > 100 ? rawResult.slice(0, 100) + "..." : rawResult;

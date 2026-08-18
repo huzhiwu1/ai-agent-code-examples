@@ -35,6 +35,7 @@ import {
   toolMap,
   validatePlan,
   aggregateResults,
+  resolveArgs,
 } from "../shared";
 
 // ──────────────── Planner：只规划，不执行 ────────────────
@@ -59,6 +60,16 @@ const PLANNER_SYSTEM_PROMPT = new SystemMessage(
     "- get_orders: { userId: string } — 查询指定用户的订单历史\n" +
     "- calculate_discount: { totalAmount: number, userTier: '普通'|'白银'|'黄金'|'VIP' } — 计算折扣\n" +
     "- generate_report: { sections: string[] } — 生成用户报告\n\n" +
+    "## 参数引用语法（重要）\n" +
+    "如果某步骤的参数依赖前序步骤的结果，**不要填占位值（如 0、'普通'）**，" +
+    "而是用引用语法，执行时会自动替换成真实值：\n" +
+    '- "$ref:step-1" → step-1 的完整结果\n' +
+    '- "$ref:step-1.level" → step-1 结果里的 level 字段\n' +
+    '- "$ref:step-2.amount" → step-2 结果（数组）里每个元素的 amount 组成的数组\n' +
+    '- "$sum($ref:step-2.amount)" → 对上面那个数组求和（订单总金额）\n\n' +
+    '例如：calculate_discount 的 totalAmount 用 "$sum($ref:step-2.amount)"，' +
+    'userTier 用 "$ref:step-1.level"；generate_report 的 sections 可引用各步结果（如 "$ref:step-3"）\n' +
+    "不依赖前序结果的参数（如 userId）直接填字面值。\n" +
     "重要：args 必须填写工具所需的全部参数，不要留空。"
 );
 
@@ -77,10 +88,10 @@ async function planOnly(task: string): Promise<PlanStep[]> {
  * Executor 是确定性执行器，不依赖 LLM：拿到工具名和参数，直接执行。
  * 这里的 console.log 仅用于演示 Executor 收到的上下文信息。
  */
-async function executeOneStep(
-  step: PlanStep,
-  doneContext: { id: string; description: string; result: string }[]
-): Promise<string> {
+async function executeOneStep(step: PlanStep, stateMap: Map<string, StepState>): Promise<string> {
+  const doneContext = [...stateMap.values()]
+    .filter((s) => s.status === "done")
+    .map((s) => ({ id: s.step.id, description: s.step.description, result: s.result ?? "" }));
   const contextStr = doneContext
     .map((d) => `  ${d.id} (${d.description}): ${d.result.slice(0, 80)}`)
     .join("\n");
@@ -90,7 +101,9 @@ async function executeOneStep(
   // 实际执行：查工具映射，调用工具（真实架构中 Executor 就是确定性执行，不依赖 LLM）
   const tool = toolMap.get(step.tool);
   if (!tool) throw new Error(`未知工具: ${step.tool}`);
-  return tool.invoke(step.args);
+  // 参数引用解析：$ref:step-1 / $sum($ref:step-2.amount) → 真实值
+  const resolvedArgs = resolveArgs(step.args, stateMap);
+  return tool.invoke(resolvedArgs);
 }
 
 // ──────────────── 编排层：Planner → 循环 Executor → 汇总 ────────────────
@@ -160,7 +173,7 @@ async function orchestrate(task: string): Promise<Map<string, StepState>> {
         .map((s) => ({ id: s.step.id, description: s.step.description, result: s.result ?? "" }));
 
       try {
-        const rawResult = await executeOneStep(step, doneContext);
+        const rawResult = await executeOneStep(step, stateMap);
         stepState.result = rawResult;
         stepState.status = "done";
         const preview = rawResult.length > 100 ? rawResult.slice(0, 100) + "..." : rawResult;

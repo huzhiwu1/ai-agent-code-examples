@@ -29,6 +29,7 @@ import {
   generatePlan,
   validatePlan,
   aggregateResults,
+  resolveArgs,
 } from "../shared";
 
 /**
@@ -91,7 +92,9 @@ async function executePlanClosedLoop(steps: PlanStep[]): Promise<Map<string, Ste
         const tool = toolMap.get(step.tool);
         if (!tool) throw new Error(`未知工具: ${step.tool}`);
 
-        const rawResult = await tool.invoke(step.args);
+        // 参数引用解析：$ref:step-1 / $sum($ref:step-2.amount) → 真实值
+        const resolvedArgs = resolveArgs(step.args, stateMap);
+        const rawResult = await tool.invoke(resolvedArgs);
         stepState.result = rawResult;
         stepState.status = "done";
 

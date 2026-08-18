@@ -20,11 +20,23 @@
  */
 
 import "dotenv/config";
-import { TASK, PlanStep, toolMap, generatePlan, validatePlan } from "../shared";
+import {
+  TASK,
+  PlanStep,
+  StepState,
+  createStepState,
+  toolMap,
+  generatePlan,
+  validatePlan,
+  resolveArgs,
+} from "../shared";
 
 /** 顺序执行计划：按 steps 数组顺序逐条执行（Step 02 简化版，不做依赖调度） */
 async function executePlanSequential(steps: PlanStep[]): Promise<void> {
   console.log("\n── 执行计划（顺序执行）──\n");
+
+  // 记录每步执行结果，供后续步骤的参数引用解析（$ref）
+  const stateMap = new Map<string, StepState>();
 
   for (const step of steps) {
     console.log(`  ▶ ${step.id}: ${step.description}`);
@@ -42,10 +54,18 @@ async function executePlanSequential(steps: PlanStep[]): Promise<void> {
       if (!tool) {
         throw new Error(`未知工具: ${step.tool}`);
       }
-      const rawResult = await tool.invoke(step.args);
+      // 参数引用解析：把 $ref:step-1 / $sum($ref:step-2.amount) 替换成真实值
+      const resolvedArgs = resolveArgs(step.args, stateMap);
+      const rawResult = await tool.invoke(resolvedArgs);
       const preview = rawResult.length > 100 ? rawResult.slice(0, 100) + "..." : rawResult;
       console.log(`  ← 结果: ${preview}`);
       console.log(`  ✅ ${step.id} 完成\n`);
+
+      // 保存本步结果，供后续步骤引用
+      const doneState = createStepState(step);
+      doneState.status = "done";
+      doneState.result = rawResult;
+      stateMap.set(step.id, doneState);
     } catch (err) {
       console.log(`  ❌ ${step.id} 失败: ${(err as Error).message}\n`);
     }
