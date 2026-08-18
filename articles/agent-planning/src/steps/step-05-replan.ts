@@ -91,6 +91,14 @@ async function replan(
       "- get_orders: { userId: string } — 查询指定用户的订单历史\n" +
       "- calculate_discount: { totalAmount: number, userTier: '普通'|'白银'|'黄金'|'VIP' } — 计算折扣\n" +
       "- generate_report: { sections: string[] } — 生成用户报告\n\n" +
+      "## 参数引用语法（重要）\n" +
+      "如果某步骤的参数依赖前序步骤的结果（包括**已完成步骤**的结果），" +
+      "**不要填占位值或描述文字**，用引用语法，执行时会自动替换成真实值：\n" +
+      '- "$ref:step-1" → step-1 的完整结果\n' +
+      '- "$ref:step-1.level" → step-1 结果里的 level 字段\n' +
+      '- "$sum($ref:step-2.amount)" → 对 step-2 结果（订单数组）的 amount 求和\n\n' +
+      '例如：calculate_discount 的 totalAmount 用 "$sum($ref:step-2.amount)"，' +
+      'userTier 用 "$ref:step-1.level"；generate_report 的 sections 可引用各步结果（如 "$ref:step-3"）\n' +
       "重要：args 必须填写工具所需的全部参数，不要留空。\n" +
       "输出 JSON 格式的新计划（只包含剩余步骤）。"
   );
