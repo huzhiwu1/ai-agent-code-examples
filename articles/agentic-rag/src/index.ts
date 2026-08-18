@@ -555,11 +555,14 @@ ${
 判断：已有足够依据回答用户问题吗？${remaining > 0 ? "或者还需要继续检索剩余子问题？" : ""}`
     );
     console.log(`  [plan_next] need_more=${result.need_more} (${result.reason})`);
-    // 硬上限兜底
+    // need_more=false 或即将达到硬上限：把子问题索引推到末尾，
+    // 让 afterPlan 的 idx >= subQs.length 条件路由到 generate
     if (!result.need_more || count >= (state.max_retrievals ?? 6) - 1) {
-      return {};
+      console.log("  [plan_next] 无需继续检索，进入生成");
+      return { current_sub_idx: subQs.length };
     }
-    return { current_sub_idx: idx }; // 保持不变，retrieve 会再取下一个
+    // 仍需继续检索：索引在上一轮 retrieve 中已推进，保持不变即可
+    return {};
   };
 
   const afterPlan = (state: typeof GraphState.State) => {
