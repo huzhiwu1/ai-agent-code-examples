@@ -1,0 +1,22 @@
+{
+  "name": "@articles/agent-pg-persistence",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《PG + AI Agent 持久化：Agent 重启后怎么记住状态？》代码示例",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/langgraph": "^1.4.10",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.4",
+    "@langchain/pgvector": "^0.1.0",
+    "@langchain/openai": "^1.5.8",
+    "@langchain/core": "^1.2.1",
+    "pg": "^8.21.0",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0"
+  }
+}

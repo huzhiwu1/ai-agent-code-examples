@@ -1,0 +1,18 @@
+{
+  "name": "@articles/multi-agent-supervisor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《多 Agent 一定比单 Agent 更好吗？Supervisor/Handoff 怎么分工才不打架？》代码示例：两名专门子 Agent + Supervisor 路由",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph-supervisor": "^1.0.0",
+    "@langchain/openai": "^1.5.3",
+    "dotenv": "^17.4.2",
+    "langchain": "^1.0.6",
+    "zod": "^4.4.3"
+  }
+}

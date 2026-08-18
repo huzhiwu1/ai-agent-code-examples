@@ -1,0 +1,16 @@
+{
+  "name": "@articles/agent-token-budget",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《Agent 烧 token 太快怎么办？从预算到优化》代码示例：token 追踪 → 预算拦截 → 三种降本策略",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/openai": "^1.5.3",
+    "@langfuse/langchain": "^5.10.0",
+    "dotenv": "^17.4.2"
+  }
+}
