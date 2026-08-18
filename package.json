@@ -19,7 +19,13 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "run:planning": "pnpm --filter @articles/agent-planning run start",
+    "run:planning:step1": "pnpm --filter @articles/agent-planning run start:step1",
+    "run:planning:step2": "pnpm --filter @articles/agent-planning run start:step2",
+    "run:planning:step3": "pnpm --filter @articles/agent-planning run start:step3",
+    "run:planning:step4": "pnpm --filter @articles/agent-planning run start:step4",
+    "run:planning:step5": "pnpm --filter @articles/agent-planning run start:step5"
   },
   "lint-staged": {
     "*.{ts,js,mjs,cjs}": [

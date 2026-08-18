@@ -1,0 +1,23 @@
+{
+  "name": "@articles/agent-planning",
+  "version": "1.0.0",
+  "private": true,
+  "description": "《Agent 怎么\"先想再做\"？从直答到 Plan-and-Execute 的动态规划》代码示例（5 步渐进式）",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "start:step1": "tsx src/steps/step-01-direct.ts",
+    "start:step2": "tsx src/steps/step-02-plan-execute.ts",
+    "start:step3": "tsx src/steps/step-03-tool-loop.ts",
+    "start:step4": "tsx src/steps/step-04-planner-executor.ts",
+    "start:step5": "tsx src/steps/step-05-replan.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/openai": "^1.5.3",
+    "dotenv": "^17.4.2",
+    "zod": "^4.4.3"
+  }
+}
