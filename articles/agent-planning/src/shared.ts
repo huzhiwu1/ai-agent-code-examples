@@ -313,13 +313,28 @@ export function validatePlan(
     }
   }
 
-  // 2. 检测循环依赖（DFS）
+  // 2. 检测循环依赖（DFS 深度优先搜索）
+  // 两个集合的分工：
+  //   - visited：已经彻底检查完的步骤（确定不会形成环），永久标记，避免重复检查
+  //   - inStack：当前这条检查路径上「还没走完」的步骤，临时标记
+  // 如果沿着依赖链走到一个还在 inStack 里的步骤 → 依赖关系绕回了原点 → 有环
+  //
+  // 例：step-1 → step-2 → step-3 → step-2
+  //   查 step-1 时 inStack = {1, 2, 3}，查 step-3 的依赖 step-2 时发现
+  //   step-2 还在 inStack 里（没走完），说明 2 → 3 → 2 形成了一个环
   const visited = new Set<string>();
   const inStack = new Set<string>();
 
+  /**
+   * 递归检查从 nodeId 出发的依赖链是否存在环
+   * @param nodeId 当前检查的步骤 ID
+   * @returns 从该步骤出发是否发现环
+   */
   function hasCycle(nodeId: string): boolean {
-    if (inStack.has(nodeId)) return true;
-    if (visited.has(nodeId)) return false;
+    if (inStack.has(nodeId)) return true; // 命中「还没走完」的步骤 → 绕了一圈，有环
+    if (visited.has(nodeId)) return false; // 早就查完了 → 不会成环，直接复用结果
+
+    // 首次访问：先假设它在环上（加入 inStack），检查完再解除假设
     visited.add(nodeId);
     inStack.add(nodeId);
     const step = steps.find((s) => s.id === nodeId);
@@ -331,6 +346,7 @@ export function validatePlan(
         }
       }
     }
+    // 所有依赖都查完没发现环 → 本步骤安全，从当前路径移除（但保留在 visited）
     inStack.delete(nodeId);
     return false;
   }

@@ -168,10 +168,6 @@ async function orchestrate(task: string): Promise<Map<string, StepState>> {
       const { step } = stepState;
       console.log(`  ▶ ${step.id}: ${step.description}`);
 
-      const doneContext = [...stateMap.values()]
-        .filter((s) => s.status === "done")
-        .map((s) => ({ id: s.step.id, description: s.step.description, result: s.result ?? "" }));
-
       try {
         const rawResult = await executeOneStep(step, stateMap);
         stepState.result = rawResult;
