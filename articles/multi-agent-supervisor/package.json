@@ -5,10 +5,19 @@
   "description": "《多 Agent 一定比单 Agent 更好吗？Supervisor/Handoff 怎么分工才不打架？》代码示例：两名专门子 Agent + Supervisor 路由",
   "main": "src/index.ts",
   "scripts": {
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "start:step1": "tsx src/steps/step-01-single-agent.ts",
+    "start:step2": "tsx src/steps/step-02-handoff.ts",
+    "start:step3": "tsx src/steps/step-03-supervisor.ts",
+    "start:step4": "tsx src/steps/step-04-state-passing.ts",
+    "start:step5": "tsx src/steps/step-05-collaboration.ts",
+    "start:step6": "tsx src/steps/step-06-from-scratch.ts",
+    "start:step7": "tsx src/steps/step-07-reflection.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.7",
     "@langchain/langgraph-supervisor": "^1.0.0",
     "@langchain/openai": "^1.5.3",
     "dotenv": "^17.4.2",
