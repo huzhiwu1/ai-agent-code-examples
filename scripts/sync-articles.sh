@@ -23,15 +23,16 @@ sync_one() {
     return 0
   fi
   # 剥离 front matter（第一个 --- 到第二个 --- 之间的行）
-  awk 'BEGIN{n=0} /^---$/{n++; next} n<2{next} {print}' "$file" > /tmp/push-article.md
+  awk 'BEGIN{n=0} /^---$/{n++; next} n<2{next} {print}' "$file" > .push-article.md
   echo "🔄 同步 $slug → 飞书 $token ..."
-  lark-cli docs +update --doc "$token" --command overwrite --doc-format markdown --content @/tmp/push-article.md --as user 2>&1 | python3 -c "
+  lark-cli docs +update --doc "$token" --command overwrite --doc-format markdown --content @./.push-article.md --as user 2>&1 | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 ok = d.get('data',{}).get('result')
 rev = d.get('data',{}).get('document',{}).get('revision_id')
 print('✅ %s 同步成功 (revision %s)' % ('$slug', rev) if ok == 'success' else '❌ %s 同步失败: %s' % ('$slug', d.get('error',{}).get('message', d)))
 "
+  rm -f .push-article.md
 }
 
 list_all() {
