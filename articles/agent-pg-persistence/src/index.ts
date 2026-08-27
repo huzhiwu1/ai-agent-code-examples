@@ -70,11 +70,12 @@ const LLM_API_KEY = process.env.LLM_API_KEY ?? "";
 const LLM_BASE_URL = process.env.LLM_BASE_URL ?? "https://api.deepseek.com";
 const LLM_MODEL = process.env.LLM_MODEL ?? "deepseek-chat";
 
-// Embeddings 配置：优先读 OPENAI_* 环境变量，缺省用 LLM_* 配置
+// Embeddings 配置：优先读 EMBEDDING_* 环境变量（根 .env 已配置 DashScope），
+// 缺省用 OPENAI_*，再缺省用 LLM_* 配置
 // ⚠️ 注意：DeepSeek 不支持 embeddings API，需要换成 DashScope、OpenAI 等
-const EMBEDDING_API_KEY = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY || "";
+const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY || process.env.OPENAI_API_KEY || "";
 const EMBEDDING_BASE_URL =
-  process.env.OPENAI_BASE_URL || process.env.LLM_BASE_URL || "https://api.deepseek.com";
+  process.env.EMBEDDING_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.deepseek.com";
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || "text-embedding-3-small";
 
 // ====================================================================

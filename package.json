@@ -35,7 +35,8 @@
     "run:planning:step4": "pnpm --filter @articles/agent-planning run start:step4",
     "run:planning:step5": "pnpm --filter @articles/agent-planning run start:step5",
     "run:planning:step6": "pnpm --filter @articles/agent-planning run start:step6",
-    "run:planning:step7": "pnpm --filter @articles/agent-planning run start:step7"
+    "run:planning:step7": "pnpm --filter @articles/agent-planning run start:step7",
+    "run:pg-persistence": "pnpm --filter @articles/agent-pg-persistence run start"
   },
   "lint-staged": {
     "*.{ts,js,mjs,cjs}": [
