@@ -36,7 +36,14 @@
     "run:planning:step5": "pnpm --filter @articles/agent-planning run start:step5",
     "run:planning:step6": "pnpm --filter @articles/agent-planning run start:step6",
     "run:planning:step7": "pnpm --filter @articles/agent-planning run start:step7",
-    "run:pg-persistence": "pnpm --filter @articles/agent-pg-persistence run start"
+    "run:pg-persistence": "pnpm --filter @articles/agent-pg-persistence run start",
+    "pg:step:01": "pnpm --filter @articles/agent-pg-persistence run step:01",
+    "pg:step:02": "pnpm --filter @articles/agent-pg-persistence run step:02",
+    "pg:step:03": "pnpm --filter @articles/agent-pg-persistence run step:03",
+    "pg:step:04": "pnpm --filter @articles/agent-pg-persistence run step:04",
+    "pg:step:05": "pnpm --filter @articles/agent-pg-persistence run step:05",
+    "pg:step:06": "pnpm --filter @articles/agent-pg-persistence run step:06",
+    "pg:step:07": "pnpm --filter @articles/agent-pg-persistence run step:07"
   },
   "lint-staged": {
     "*.{ts,js,mjs,cjs}": [

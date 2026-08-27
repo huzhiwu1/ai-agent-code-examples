@@ -1,11 +1,19 @@
 {
   "name": "@articles/agent-pg-persistence",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "《PG + AI Agent 持久化：Agent 重启后怎么记住状态？》代码示例",
+  "description": "《PG + AI Agent 持久化：售后客服 Agent 的退款工单为什么重启不丢？》代码示例（7 步渐进式）",
   "main": "src/index.ts",
   "scripts": {
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "step:01": "tsx src/steps/step-01-memorysaver-lost.ts",
+    "step:02": "tsx src/steps/step-02-postgres-saver-basics.ts",
+    "step:03": "tsx src/steps/step-03-multi-step-recovery.ts",
+    "step:04": "tsx src/steps/step-04-multi-instance-shared.ts",
+    "step:05": "tsx src/steps/step-05-longterm-memory.ts",
+    "step:06": "tsx src/steps/step-06-vector-knowledge.ts",
+    "step:07": "tsx src/steps/step-07-production-hardening.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@langchain/langgraph": "^1.4.10",
