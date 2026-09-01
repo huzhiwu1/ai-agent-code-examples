@@ -1,24 +1,23 @@
 /**
- * Step 04 – 状态传递：在 Agent 间共享上下文
+ * Step 04 – 状态传递与上下文管理：Agent 间共享上下文 + Token 成本意识
  *
- * 学习目标：理解 Supervisor 如何在 Agent 间传递结构化状态，
- * 让后续 Agent 能"看到"前序 Agent 的输出结果。
+ * 学习目标：
+ *   1. 理解 outputMode 如何控制 Agent 间的上下文共享
+ *   2. 掌握生产级上下文管理：状态传递 vs Token 成本 / 上下文去噪
  *
- * 核心机制：
- *   1. **消息历史传递**：Supervisor 默认把完整消息历史传给每个 Agent
- *      → Agent B 可以从对话历史中读取 Agent A 的输出
- *   2. **outputMode 控制**：
- *      - "last_message"（默认）：只传最后一条消息，节省 Token
- *      - "full_history"：传完整历史，Agent B 能看到 Agent A 的完整输出
- *   3. **结构化响应**：用 responseFormat 让 Supervisor 输出结构化 JSON
+ * 生产级要点：
+ *   ① full_history 让后序 Agent 看到前序 Agent 的完整执行轨迹
+ *     —— 这是"状态传递"的基石（餐厅 Agent 要读天气结果才能做雨天推荐）
+ *   ② Token 成本意识：多 Agent 系统因冗余上下文共享，消耗是理论值的
+ *     1.5x ~ 7x（Galileo 实测：MetaGPT 72% / CAMEL 86% 的 token 是重复的）。
+ *     本 Step 会真实打印每次运行的 token 消耗，让你建立成本直觉
+ *   ③ 上下文去噪：LangChain 官方 Benchmark 发现"从子 Agent 上下文中移除
+ *     交接消息"能让 Supervisor 性能提升近 50% —— 上下文里的噪声对模型
+ *     可靠性的影响远超直觉
  *
  * 实战场景：
  *   用户问"杭州天气如何？如果下雨推荐室内餐厅"——
  *   需要 Agent A（天气）先输出结果，Agent B（餐厅）基于天气结果做推荐。
- *
- * 对应真实设计：
- *   LangGraph 的 StateGraph 天然支持状态在节点间传递。
- *   Supervisor 底层也是 StateGraph，消息历史就是"共享状态"。
  *
  * 跑法：pnpm run:multi-agent-supervisor:step4
  */
@@ -31,13 +30,19 @@ import {
   llm,
   lookupWeatherTool,
   lookupRestaurantsTool,
+  isDirectRun,
   lastMessageText,
   printSeparator,
   printObservations,
 } from "../shared";
 
+/** 从消息历史中累计所有 AI 消息的 token 用量（usage_metadata 由模型返回） */
+function sumTokenUsage(messages: Array<{ usage_metadata?: { total_tokens?: number } }>): number {
+  return messages.reduce((sum, m) => sum + (m.usage_metadata?.total_tokens ?? 0), 0);
+}
+
 export async function main() {
-  printSeparator("Step 04: 状态传递 — Agent 间共享上下文");
+  printSeparator("Step 04: 状态传递 — Agent 间共享上下文 + Token 成本");
 
   if (!API_KEY) {
     console.log("⚠️  跳过（未配置 LLM_API_KEY）");
@@ -66,15 +71,16 @@ export async function main() {
   });
 
   // 关键：使用 full_history 模式，让餐厅 Agent 能读到天气 Agent 的输出
-  // addHandoffMessages: false — DeepSeek 兼容性配置
   const workflow = createSupervisor({
     agents: [weatherAgent.graph, restaurantAgent.graph],
     llm,
     supervisorName: "supervisor",
     includeAgentName: "inline",
+    // DeepSeek 兼容 + 上下文去噪（详见 Step 03）
     addHandoffMessages: false,
     addHandoffBackMessages: false,
-    outputMode: "full_history", // 关键配置：让 Agent 看到完整对话历史
+    // 生产级关键配置：完整对话历史 → 后序 Agent 能看到前序 Agent 的输出
+    outputMode: "full_history",
     prompt: `你是调度员。根据用户请求选择合适的 Agent：
 
 你的子 Agent：
@@ -90,13 +96,16 @@ export async function main() {
 
   const app = workflow.compile();
 
-  // 演示：先天气后餐厅 —— 餐厅 Agent 需要读取天气结果
   const query = "杭州今天天气怎么样？如果下雨的话，推荐一些适合雨天去的餐厅。";
   console.log(`\n📝 用户请求：「${query}」\n`);
   console.log("🔑 关键配置：outputMode = 'full_history' → 餐厅 Agent 能读到天气 Agent 的输出\n");
 
   const nodePath: string[] = [];
-  let finalState: { messages?: Array<{ content?: unknown }> } | null = null;
+  // 用显式 interface 承载最终状态（避免 typeof 循环推断导致 never）
+  interface StepState {
+    messages?: Array<{ content?: unknown; usage_metadata?: { total_tokens?: number } }>;
+  }
+  let finalState: StepState | null = null;
 
   const stream = await app.stream(
     { messages: [new HumanMessage(query)] },
@@ -109,7 +118,7 @@ export async function main() {
       if (keys.length > 0) nodePath.push(...keys);
     }
     if (mode === "values") {
-      finalState = payload as { messages?: Array<{ content?: unknown }> };
+      finalState = payload as unknown as StepState;
     }
   }
 
@@ -118,28 +127,44 @@ export async function main() {
   console.log(lastMessageText(finalState ?? {}));
 
   // 展示消息历史传递
+  const messages = finalState?.messages ?? [];
   console.log("\n" + "-".repeat(72));
-  console.log("📬 消息历史中的 Agent 间传递（共", finalState?.messages?.length ?? 0, "条消息）：");
-  finalState?.messages?.forEach((msg, i) => {
+  console.log(`📬 消息历史中的 Agent 间传递（共 ${messages.length} 条消息）：`);
+  messages.forEach((msg, i) => {
     const content =
       typeof msg.content === "string"
-        ? msg.content.slice(0, 80)
-        : JSON.stringify(msg.content).slice(0, 80);
+        ? msg.content.slice(0, 60)
+        : JSON.stringify(msg.content).slice(0, 60);
     const type = (msg as { _getType?: () => string })._getType?.() ?? "unknown";
     console.log(`  [${i}] ${type}: ${content}...`);
   });
 
+  // Token 成本统计（真实 usage_metadata）
+  const totalTokens = sumTokenUsage(
+    messages as Array<{ usage_metadata?: { total_tokens?: number } }>
+  );
+  console.log("\n💰 Token 消耗统计（真实 usage_metadata）：");
+  console.log(`  - 全流程累计消耗: ${totalTokens} tokens`);
+  console.log(
+    `  - LLM 调用次数: ${messages.filter((m) => m.usage_metadata).length} 次（Supervisor 路由 + 各 Agent 推理）`
+  );
+  console.log(`  - 对比参考: 单 Agent + 2 工具通常只需 2~3 次调用、几千 tokens`);
+
   printObservations([
-    "outputMode='full_history' 让餐厅 Agent 看到天气 Agent 的完整输出",
-    "餐厅 Agent 的 System Prompt 明确要求「根据天气结果调整推荐策略」→ 这就是状态传递",
-    "如果改成 outputMode='last_message'（默认），餐厅 Agent 可能看不到天气信息",
-    "实际生产中可以进一步用 stateSchema 自定义状态字段，传递结构化数据",
+    "outputMode='full_history' 让餐厅 Agent 看到天气 Agent 的完整输出 → 这就是状态传递",
+    "full_history 的代价是 Token 更高：每次路由决策都要携带完整历史",
+    "生产级取舍：依赖链场景用 full_history；独立任务用 last_message 省 Token",
+    "上下文去噪：移除交接消息（addHandoffMessages=false）既兼容 DeepSeek，又能提升模型可靠性",
+    "多 Agent 不是银弹：如果单 Agent + 工具能完成任务，Token 成本和延迟都更低",
   ]);
 
-  console.log("\n✅ Step 04 完成（状态传递机制已理解）\n");
+  console.log("\n✅ Step 04 完成（状态传递 + 成本意识已掌握）\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-04-state-passing.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

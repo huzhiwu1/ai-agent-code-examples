@@ -22,6 +22,7 @@
     "run:multi-agent-supervisor:step5": "pnpm --filter @articles/multi-agent-supervisor run start:step5",
     "run:multi-agent-supervisor:step6": "pnpm --filter @articles/multi-agent-supervisor run start:step6",
     "run:multi-agent-supervisor:step7": "pnpm --filter @articles/multi-agent-supervisor run start:step7",
+    "run:multi-agent-supervisor:step8": "pnpm --filter @articles/multi-agent-supervisor run start:step8",
     "prepare": "husky",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

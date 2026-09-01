@@ -32,6 +32,7 @@ import {
   llm,
   lookupWeatherTool,
   lookupCityTriviaTool,
+  isDirectRun,
   lastMessageText,
   printSeparator,
   printObservations,
@@ -71,6 +72,8 @@ export async function main() {
 只输出一个词，不要解释。`
     );
 
+    // llm.invoke：普通 LLM 调用（不带工具），返回 AI 消息
+    // content 可能是字符串或数组（tool_calls 时是数组），这里只处理字符串
     const result = await llm.invoke([routerPrompt, new HumanMessage(query)]);
     const content = typeof result.content === "string" ? result.content.trim().toLowerCase() : "";
     if (content.includes("weather")) return "weather";
@@ -86,9 +89,11 @@ export async function main() {
 
   if (intent1 === "weather") {
     console.log("👉 交接给 weather_agent ...");
+    // 手动 Handoff：Router 选好人后，由代码直接调用对应 Agent 的图
     const result = await weatherAgent.graph.invoke({
       messages: [new HumanMessage(query1)],
     });
+    // slice(0, 150)：只打印前 150 字符，避免控制台输出过长
     console.log("🤖 weather_agent 回答：", lastMessageText(result).slice(0, 150));
   }
 
@@ -124,7 +129,10 @@ export async function main() {
   console.log("\n✅ Step 02 完成（Handoff 模式已理解，暴露了局限性）\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-02-handoff.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

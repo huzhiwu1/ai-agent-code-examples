@@ -2,7 +2,7 @@
   "name": "@articles/multi-agent-supervisor",
   "version": "1.0.0",
   "private": true,
-  "description": "《多 Agent 一定比单 Agent 更好吗？Supervisor/Handoff 怎么分工才不打架？》代码示例：两名专门子 Agent + Supervisor 路由",
+  "description": "《多 Agent 协同生产级实战：从单 Agent 痛点走向 Planner-Worker-Reviewer》代码示例：8 步渐进式多 Agent 编排",
   "main": "src/index.ts",
   "scripts": {
     "start": "tsx src/index.ts",
@@ -10,9 +10,10 @@
     "start:step2": "tsx src/steps/step-02-handoff.ts",
     "start:step3": "tsx src/steps/step-03-supervisor.ts",
     "start:step4": "tsx src/steps/step-04-state-passing.ts",
-    "start:step5": "tsx src/steps/step-05-collaboration.ts",
-    "start:step6": "tsx src/steps/step-06-from-scratch.ts",
-    "start:step7": "tsx src/steps/step-07-reflection.ts",
+    "start:step5": "tsx src/steps/step-05-deterministic-routing.ts",
+    "start:step6": "tsx src/steps/step-06-reflection.ts",
+    "start:step7": "tsx src/steps/step-07-budget-observability.ts",
+    "start:step8": "tsx src/steps/step-08-production.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

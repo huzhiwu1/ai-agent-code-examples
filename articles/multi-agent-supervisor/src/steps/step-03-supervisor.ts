@@ -1,28 +1,29 @@
 /**
- * Step 03 – Supervisor 自动路由：声明式多 Agent 调度
+ * Step 03 – Supervisor 自动路由：声明式多 Agent 调度（含循环问题实测）
  *
- * 学习目标：理解 Supervisor 模式的核心机制 ——
- * 用一个"调度员 LLM"自动决定每个请求该交给哪个子 Agent 处理。
+ * 学习目标：
+ *   1. 理解 createSupervisor 的自动路由机制（调度员 LLM 选人，子 Agent 干活）
+ *   2. 亲眼看到它的循环缺陷，理解根因 —— 为 Step 05 的确定性路由做铺垫
  *
- * 做法：
- *   1. 创建两个专门 Agent（weather_agent / trivia_agent）
- *   2. 用 createSupervisor 创建一个调度员
- *   3. 调度员自动路由：看到天气关键词 → 调 weather_agent，看到知识关键词 → 调 trivia_agent
- *   4. 支持多步骤：用户同时问天气+知识，Supervisor 自动串联调用
+ * ⚠️ 实测结论（本仓库多次运行 DeepSeek 验证）：
+ *   createSupervisor 的循环问题是"概率性的"，没有软配置能根治：
+ *   - outputMode: "full_history" 提供工具调用证据 → 降低循环概率，但不保证
+ *   - Prompt 顺序式措辞（"先调 X 再调 Y"）→ 降低概率，但不保证
+ *   - 模型随机性极大：同样的配置，这次循环 9 次，下次 1 次就过
  *
- * 核心概念：
- *   - Supervisor = 一个不直接执行任务的 LLM，只负责"选人"
- *   - 子 Agent = 只拥有领域工具，职责单一
- *   - 路由是声明式的（写在 Supervisor Prompt 里），不是 if-else
- *   - 多步骤：Supervisor 可以多次调用不同 Agent，直到任务完成
+ *   循环根因：Supervisor 每轮都从用户原始消息重新推导计划，
+ *   历史里的子 Agent 回答不足以让它确认"该任务已完成"，
+ *   于是反复重新调度同一个 Agent，直到耗尽 recursion limit 或模型放弃。
  *
- * 与 Step 02 的对比：
- *   Step 02（手动 Handoff）：Router 只能选一个 → 复合查询丢失
- *   Step 03（Supervisor）：自动多次调用 → 复合查询完整覆盖
+ *   生产级结论：
+ *   - createSupervisor 适合快速原型验证
+ *   - 生产防循环必须上"硬约束"：Step 05 的 visitedAgents（确定性任务分配）
+ *     或 Step 07 的预算/轮数熔断
  *
- * 对应真实设计：
- *   LangGraph Supervisor 是生产级多 Agent 模式的基础。
- *   deepagents 的 createDeepAgent 底层也是 Supervisor 模式的变体。
+ * DeepSeek 兼容配置：
+ *   addHandoffMessages: false —— 绕开 DeepSeek 的 tool_calls 严格配对校验
+ *   （模型并行发多个 handoff 调用时，多个 Command 只有一个生效，
+ *     历史里会出现未配对的 tool_calls → 400 invalid_tool_results）
  *
  * 跑法：pnpm run:multi-agent-supervisor:step3
  */
@@ -35,13 +36,17 @@ import {
   llm,
   lookupWeatherTool,
   lookupCityTriviaTool,
+  isDirectRun,
   lastMessageText,
   printSeparator,
   printObservations,
 } from "../shared";
 
+/** 复合查询演示的最大调度轮数（防止循环演示烧太多 token） */
+const DEMO_RECURSION_LIMIT = 14;
+
 export async function main() {
-  printSeparator("Step 03: Supervisor 自动路由 — 声明式多 Agent 调度");
+  printSeparator("Step 03: Supervisor 自动路由 — 声明式调度（含循环问题实测）");
 
   if (!API_KEY) {
     console.log("⚠️  跳过（未配置 LLM_API_KEY）");
@@ -65,14 +70,14 @@ export async function main() {
     systemPrompt: "你只讲城市小知识。必须先调用 lookup_city_trivia，再用人话转述，不要编造。",
   });
 
-  // 关键：Supervisor 只负责"选人"，不直接执行任务
-  // addHandoffMessages: false — DeepSeek 兼容性配置，避免 tool_calls 配对校验失败
   const workflow = createSupervisor({
     agents: [weatherAgent.graph, triviaAgent.graph],
     llm,
     supervisorName: "supervisor",
     includeAgentName: "inline",
+    // DeepSeek 兼容：避免 tool_calls 配对校验失败（invalid_tool_results 400）
     addHandoffMessages: false,
+    // 减少噪声：子 Agent 完成后不插入「交接回 Supervisor」的标记消息
     addHandoffBackMessages: false,
     prompt: `你是调度员（Supervisor），只负责选人，绝对不要自己报气温或讲城市百科。
 
@@ -82,9 +87,9 @@ export async function main() {
 
 规则：
 1. 分析用户请求，每次只调用一个 Agent
-2. 如果用户问天气 → 调 weather_agent，问完后立即 FINISH
-3. 如果用户问知识 → 调 trivia_agent，问完后立即 FINISH
-4. 如果用户同时问天气+知识 → 先调 weather_agent，再调 trivia_agent，然后 FINISH
+2. 如果用户问天气 → 调 weather_agent
+3. 如果用户问知识 → 调 trivia_agent
+4. 如果用户同时问天气+知识 → 先调 weather_agent，再调 trivia_agent
 5. 绝对不要重复调用同一个 Agent，每个 Agent 最多调用一次
 6. 绝对不要自己编造数据，必须交给子 Agent 处理`,
   });
@@ -96,44 +101,72 @@ export async function main() {
   const graph = await app.getGraphAsync();
   console.log(graph.drawMermaid({ withStyles: true }));
 
-  // 演示 1：复合查询 —— Supervisor 自动处理多步骤
+  // ── 演示 1：复合查询 —— 亲眼看看循环问题 ──
+  // 说明：recursion_limit 设为 14（约 7 轮调度），防止循环演示烧太多 token
   const query = "查一下杭州的天气，再讲一条和杭州有关的小知识。";
-  console.log(`\n📝 用户请求：「${query}」\n`);
+  console.log(`\n📝 复合查询：「${query}」`);
+  console.log(`⚠️  注意观察执行路径：Supervisor 可能反复调用同一个 Agent（循环）\n`);
 
   const nodePath: string[] = [];
   let finalState: { messages?: Array<{ content?: unknown }> } | null = null;
+  let loopError: Error | null = null;
 
-  const stream = await app.stream(
-    { messages: [new HumanMessage(query)] },
-    { streamMode: ["updates", "values"] }
-  );
-  for await (const event of stream) {
-    const [mode, payload] = event as [string, Record<string, unknown>];
-    if (mode === "updates" && payload && typeof payload === "object") {
-      const keys = Object.keys(payload);
-      if (keys.length > 0) nodePath.push(...keys);
+  try {
+    const stream = await app.stream(
+      { messages: [new HumanMessage(query)] },
+      { streamMode: ["updates", "values"], recursionLimit: DEMO_RECURSION_LIMIT }
+    );
+    for await (const event of stream) {
+      const [mode, payload] = event as [string, Record<string, unknown>];
+      if (mode === "updates" && payload && typeof payload === "object") {
+        const keys = Object.keys(payload);
+        if (keys.length > 0) nodePath.push(...keys);
+      }
+      if (mode === "values") {
+        finalState = payload as { messages?: Array<{ content?: unknown }> };
+      }
     }
-    if (mode === "values") {
-      finalState = payload as { messages?: Array<{ content?: unknown }> };
-    }
+  } catch (err) {
+    // 循环撞到 recursion limit 时会抛 GraphRecursionError —— 这也是循环的现场证据
+    loopError = err as Error;
   }
 
+  const weatherCount = nodePath.filter((n) => n === "weather_agent").length;
+  const triviaCount = nodePath.filter((n) => n === "trivia_agent").length;
+
   console.log("🔀 执行路径:", nodePath.join(" → "));
+  console.log(`📊 调度统计: weather_agent × ${weatherCount} | trivia_agent × ${triviaCount}`);
+  if (loopError) {
+    console.log(
+      `❌ 循环触达 recursion limit（${DEMO_RECURSION_LIMIT} 步）被强制终止：${loopError.message.split(".")[0]}。`
+    );
+    console.log("   这就是生产事故现场：同一 Agent 被反复调度，直到安全网兜底。");
+  } else if (weatherCount > 1) {
+    console.log("❌ 循环发生了：同一个 Agent 被反复调度（生产事故现场）");
+  } else {
+    console.log("✅ 这次没有循环（模型随机性大，多跑几次就可能循环）");
+  }
+
   console.log("\n🤖 最终回答:\n");
   console.log(lastMessageText(finalState ?? {}));
 
   console.log("-".repeat(72));
   printObservations([
-    "Supervisor 自动处理了复合查询（天气 + 知识），没有遗漏任何一个需求",
-    "子 Agent 的 System Prompt 仍然极短，职责单一 —— 这是多 Agent 的核心优势",
-    "Supervisor 的 Prompt 是声明式的：「如果A则选X，如果B则选Y」—— 不是 if-else 代码",
-    "图结构展示了 Supervisor → Agent → Supervisor 的循环：调度员可以多次调用 Agent",
+    "createSupervisor 能自动处理复合查询，但循环是概率性问题：软配置（full_history / prompt 措辞）只能降低概率，不能根治",
+    "循环根因：Supervisor 每轮都重新从用户消息推导计划，历史中的子 Agent 回答不足以确认任务已完成",
+    "production 结论：createSupervisor 适合原型验证；生产防循环必须上硬约束",
+    "硬约束方案：Step 05 的 visitedAgents（确定性任务分配，代码层拒绝重复调度）",
+    "兜底方案：Step 07 的预算/轮数熔断 + recursion_limit（防止循环烧钱）",
+    "DeepSeek 兼容：addHandoffMessages=false 绕开 tool_calls 配对校验（否则 400 invalid_tool_results）",
   ]);
 
-  console.log("\n✅ Step 03 完成（Supervisor 模式已掌握）\n");
+  console.log("\n✅ Step 03 完成（理解了 Supervisor 的能力与边界）\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-03-supervisor.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

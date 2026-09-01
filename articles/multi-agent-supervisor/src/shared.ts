@@ -1,5 +1,5 @@
 /**
- * shared.ts — 多 Agent 编排 7 步渐进式共用的基础模块
+ * shared.ts — 多 Agent 编排 8 步渐进式共用的基础模块
  *
  * 本文件只放「多步复用」的部分：
  *   - LLM 初始化（读仓库根 .env）
@@ -31,6 +31,8 @@ export const llm = new ChatOpenAI({
   configuration: { baseURL: BASE_URL },
   temperature: 0.1,
   maxTokens: 1024,
+  // 生产级：LLM 瞬时失败（429/5xx）自动重试，最多 2 次
+  maxRetries: 2,
 });
 
 // ──────────────── 模拟数据表 ────────────────
@@ -41,10 +43,10 @@ function normCity(city: string) {
 
 export interface WeatherData {
   summary: string;
-  tempHighC: number;
-  tempLowC: number;
-  aqi: string;
-  humidity: string;
+  tempHighC: number | null;
+  tempLowC: number | null;
+  aqi: string | null;
+  humidity: string | null;
 }
 
 export interface RestaurantData {
@@ -118,10 +120,10 @@ export const lookupWeatherTool = tool(
         : {
             city: c,
             summary: "暂无该城市天气数据",
-            tempHighC: 20,
-            tempLowC: 12,
-            aqi: "—",
-            humidity: "—",
+            tempHighC: null,
+            tempLowC: null,
+            aqi: null,
+            humidity: null,
           }
     );
   },
@@ -211,6 +213,16 @@ export function printSeparator(title: string, char = "=") {
   console.log(`\n${char.repeat(72)}`);
   console.log(title);
   console.log(char.repeat(72));
+}
+
+/**
+ * 判断当前进程是否直接运行了指定 step 文件。
+ * 批量模式（index.ts 动态 import 各 step）时，模块顶层 main() 会被 import 触发，
+ * 若不加以防护，index 再手动调一次 main() 就会执行两遍（双份 LLM 调用）。
+ * @param fileName step 文件名（如 "step-01-single-agent.ts"）
+ */
+export function isDirectRun(fileName: string): boolean {
+  return !!process.argv[1]?.endsWith(fileName);
 }
 
 /** 打印观察点清单 */
