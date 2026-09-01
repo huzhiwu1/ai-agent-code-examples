@@ -5,7 +5,7 @@ feishu_doc: TcU1dAmLnoqyg5xectYcLUXun7d
 # 多 Agent 协同生产级实战：从单 Agent 痛点走向 Planner-Worker-Reviewer
 
 > 这不是一篇"概念罗列"的文章，而是一份**生产级多 Agent 编排的操作手册**。
-> 8 个可独立运行的 Step，覆盖从"单 Agent 为什么会翻车"到"预算熔断 + 程序化质量校验 + Trace 可观测性"的完整链路。
+> 9 个可独立运行的 Step，覆盖从"单 Agent 为什么会翻车"到"并行扇出 + 预算熔断 + 程序化质量校验 + Trace 可观测性"的完整链路。
 > 文中所有"坑"都是在本仓库真实运行 DeepSeek 实测踩出来的——你在生产上大概率也会遇到同样的坑。
 
 ## 先别急着拆团队：单 Agent 为什么会翻车
@@ -288,15 +288,56 @@ new StateGraph(ProductionState)
 // ... Worker 节点 ×4、条件边、回流边
 ```
 
-**实测结果：**4 个 Worker 全部按任务清单串行执行，Reviewer 验证每个领域都有真实工具调用记录后放行，最终输出一份完整的杭州三日游规划。**注意：全程没有并行——JS 版 createSupervisor 的多个 handoff Command 只有第一个生效（见"实测踩坑"第 3 条），"并行"是概念层面的，不是运行时行为。**
+**实测结果：**4 个 Worker 全部按任务清单串行执行，Reviewer 验证每个领域都有真实工具调用记录后放行，最终输出一份完整的杭州三日游规划。**注意：本步是刻意串行实现——JS 版 createSupervisor 的多个 handoff Command 只有第一个生效（见"实测踩坑"第 3 条），但手写 StateGraph 完全可以用 Send API 做真并行扇出（见 Step 09）。**
+
+## Step 09：并行扇出——Send API 让无依赖 Worker 同批并行
+
+**为什么需要这一步：**Step 08 的 4 个 Worker 是串行的，端到端延迟随领域数线性增长。但手写 StateGraph 完全有能力并行——只要任务之间没有依赖。
+
+**依赖分析（并行的边界）：**restaurant 依赖 weather 的结果（雨天推室内餐厅，Step 04 的依赖链），所以只能并行 weather / trivia / travel，restaurant 等第一波完成后再跑：
+
+```
+第 1 波并行：weather_agent ─┬─ trivia_agent ─┬─ travel_agent
+                          │                │
+                          └────────────────┴─→ 汇合（reviewer）→ 第 2 波：restaurant_agent
+```
+
+**实现核心（LangGraph Send API）：**条件边返回 `Send[]` 数组，LangGraph 在同一个 superstep 内并行执行整批节点，全部完成后再沿各自出边汇合——map-reduce 的 join 语义：
+
+```typescript
+import { Send } from "@langchain/langgraph";
+
+.addConditionalEdges("supervisor", (state) => {
+  if (state.next !== "fanout") return "reviewer"; // 无就绪任务 → 终检
+  // 返回 Send 数组 → 同一 superstep 内并行执行整批 Worker
+  // 实测坑：Send 的 args 是目标节点的完整输入 state（不与图状态自动合并），
+  // 必须显式传 Worker 需要的字段（messages + 波次号），否则节点里是 undefined
+  return state.currentBatch.map(
+    (node) => new Send(node, { messages: state.messages, roundCount: state.roundCount })
+  );
+})
+```
+
+**核心洞见：并行调度不需要 LLM。**任务清单（Planner 输出）+ 依赖表（静态配置）+ visitedAgents（状态记录）三者都是确定性的，Supervisor 直接算出就绪批次：`ready = 未调度 ∧ 依赖已满足`。LLM 从调度层退场后，Step 03 的循环、Step 05 拦截的"提前 FINISH / 重复调度"从机制上消失——因为调度不再依赖模型输出。
+
+**生产级要点（本 Step 会真实打印波次 Trace）：**
+
+- 预算语义：一批并行 = 1 轮；各 Worker 只计自己新增消息的 token，Supervisor 调度 0 token
+- 状态合并：并行 Worker 都写 messages，靠 concat reducer 安全合并，不会互相覆盖
+- 收益：4 个 Worker 串行 ≈ 4 段端到端延迟 → 2 波完成，墙钟时间接近减半（LLM 调用数不变）
+- 依赖不可满足（如 Planner 漏了天气却列了餐厅）→ Reviewer 识别并记录，不空转
+- Send 第三参数 `{ timeout }` 可给每个 Worker 挂任务级 runTimeout
+
+**实测结果：**weather / trivia / travel 三个 Worker 第 1 波并行完成，restaurant 第 2 波单独执行，Reviewer 终检通过，输出与 Step 08 相同的杭州三日游规划，端到端等待时间显著下降。**但注意：并行不是银弹——有依赖的任务必须串行，真正的收益来自依赖图的拓扑分层。**
 
 ## 实测踩坑记录（本仓库真实踩过的坑，生产上都会遇到）
 
 1. **调度循环（概率性问题）**：Supervisor 反复调度同一 Agent（实测 6~9 次）。软配置（outputMode/prompt）只能降低概率不能根治；修复：Step 05 的 visitedAgents 硬约束 + Step 07 熔断兜底。
 2. **invalid_tool_results 400**：默认配置（`addHandoffMessages: true`）下，模型一次并行发出多个 `transfer_to_*` 调用时，多个 handoff Command 只有一个生效，其余 ToolMessage 被丢弃 → 历史里出现"有 tool_calls 但没有配对 ToolMessage"的 assistant 消息 → DeepSeek 严格校验直接 400。修复：`addHandoffMessages: false`。
-3. **没有真正的并行**：模型可以一次发出多个 handoff 调用（`parallel_tool_calls: false` 对 DeepSeek 无效），但 tools 节点的 control branch 只处理第一个 Command，其余被静默丢弃。所以执行路径永远是串行的 `supervisor → agent → supervisor → agent`。
+3. **没有真正的并行（createSupervisor 限制）**：模型可以一次发出多个 handoff 调用（`parallel_tool_calls: false` 对 DeepSeek 无效），但 tools 节点的 control branch 只处理第一个 Command，其余被静默丢弃。所以执行路径永远是串行的 `supervisor → agent → supervisor → agent`。手写 StateGraph 则可以用 Send API 做真并行扇出（见 Step 09）。
 4. **Reflector 被编造内容骗过**：子 Agent 收到完整用户请求后会越权回答其他领域的问题（编造数据），LLM 主观质量检查会被骗。修复：程序化硬校验工具调用记录。
 5. **DeepSeek tool_calls 严格配对**：带 `tool_calls` 的 assistant 消息后面必须逐一响应 ToolMessage，任何"丢消息"的操作都可能触发 400——这是配置第 2、3 条所有 workaround 的根本原因。
+6. **Send 的 args 不是增量合并（Step 09 实测坑）**：`new Send(node, {})` 时目标节点拿到的 state 里只有 args 中的字段，其余字段（包括 schema 默认值）都是 `undefined`——Worker 读不到 messages/roundCount，导致 `agentGraph.invoke({ messages: undefined })` 后消息 reducer 崩溃（`Cannot read properties of undefined (reading 'role')`）。修复：Send args 必须显式传目标节点需要的所有字段（如 `{ messages: state.messages, roundCount: state.roundCount }`）。
 
 ## 面试考点（更新版）
 
@@ -315,10 +356,11 @@ new StateGraph(ProductionState)
 - Prompt injection（OWASP LLM01，Agent 间通信通道）→ 运行时 guardrail
 
 **4. 你项目里怎么做生产级落地？**
-Planner-Worker-Reviewer 角色分工：Planner 拆任务清单（结构化输出），Worker 只执行领域工具（职责单一），Reviewer 做程序化校验（工具调用记录检查，不靠 LLM 主观判断），Guard 做预算/轮数/超时熔断，全程 Trace 日志可复盘。模型选 DeepSeek 时注意 tool_calls 配对校验，关闭 handoff 消息并用 full_history 保持状态证据。
+Planner-Worker-Reviewer 角色分工：Planner 拆任务清单（结构化输出），Worker 只执行领域工具（职责单一），Reviewer 做程序化校验（工具调用记录检查，不靠 LLM 主观判断），Guard 做预算/轮数/超时熔断，全程 Trace 日志可复盘。任务无依赖时用 Send API 并行扇出（依赖表 + 确定性调度，LLM 不参与路由），有依赖则按拓扑分层串行。模型选 DeepSeek 时注意 tool_calls 配对校验，关闭 handoff 消息并用 full_history 保持状态证据。
 
 ## 相关资料
 
+- [LangGraph JS · Graph API 与 Send 并行扇出](https://docs.langchain.com/oss/javascript/langgraph/use-graph-api)（map-reduce / fan-out 官方示例）
 - [LangChain Blog · Benchmarking Multi-Agent Architectures](https://www.langchain.com/blog/benchmarking-multi-agent-architectures)（单 Agent 上下文缩放、Supervisor 性能改进）
 - [Galileo · 10 Multi-Agent Coordination Strategies](https://galileo.ai/blog/multi-agent-coordination-strategies)（确定性任务分配、预算熔断、checkpoint）
 - [Multi-Agent System Failure Taxonomy (MAST, arXiv 2503.13657)](https://arxiv.org/abs/2503.13657)（1600+ 失败轨迹分类）

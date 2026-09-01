@@ -1,5 +1,5 @@
 /**
- * 多 Agent 协同：从单 Agent 痛点到生产级编排的 8 步渐进式
+ * 多 Agent 协同：从单 Agent 痛点到生产级编排的 9 步渐进式
  *
  * 建议按顺序跑（每步独立可运行）：
  *   pnpm run:multi-agent-supervisor:step1   Step 01 单 Agent 痛点（痛点基线）
@@ -10,7 +10,8 @@
  *   pnpm run:multi-agent-supervisor:step6   Step 06 质量兜底（Reflector 程序化硬校验）
  *   pnpm run:multi-agent-supervisor:step7   Step 07 防失控（预算熔断 + Trace 可观测性）
  *   pnpm run:multi-agent-supervisor:step8   Step 08 生产级综合编排（Planner-Worker-Reviewer）
- *   pnpm run:multi-agent-supervisor         全部 8 步依次执行
+ *   pnpm run:multi-agent-supervisor:step9   Step 09 并行扇出（Send API 同批并行）
+ *   pnpm run:multi-agent-supervisor         全部 9 步依次执行
  *
  * 单步跑法：pnpm run:multi-agent-supervisor --step3
  */
@@ -26,6 +27,7 @@ const STEPS: Array<{ n: number; file: string; title: string }> = [
   { n: 6, file: "step-06-reflection", title: "质量兜底（程序化硬校验）" },
   { n: 7, file: "step-07-budget-observability", title: "预算熔断 + Trace 可观测性" },
   { n: 8, file: "step-08-production", title: "生产级综合编排" },
+  { n: 9, file: "step-09-parallel-fanout", title: "并行扇出（Send API）" },
 ];
 
 async function runStep(step: (typeof STEPS)[number]) {
@@ -51,15 +53,15 @@ async function main() {
   if (step >= 1 && step <= STEPS.length) {
     await runStep(STEPS[step - 1]);
   } else {
-    // 默认：全部 8 步依次执行
-    console.log(`🧠 多 Agent 协同 8 步渐进式全部执行（可加 --step1..8 单跑）\n`);
+    // 默认：全部 9 步依次执行
+    console.log(`🧠 多 Agent 协同 9 步渐进式全部执行（可加 --step1..9 单跑）\n`);
     for (const s of STEPS) {
       await runStep(s);
     }
   }
 
   console.log("=".repeat(72));
-  console.log("🏁 8 步渐进式执行完毕");
+  console.log("🏁 9 步渐进式执行完毕");
   console.log("=".repeat(72));
 }
 

@@ -14,6 +14,7 @@
     "start:step6": "tsx src/steps/step-06-reflection.ts",
     "start:step7": "tsx src/steps/step-07-budget-observability.ts",
     "start:step8": "tsx src/steps/step-08-production.ts",
+    "start:step9": "tsx src/steps/step-09-parallel-fanout.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
