@@ -36,6 +36,7 @@ import {
   validatePlan,
   aggregateResults,
   resolveArgs,
+  isDirectRun,
 } from "../shared";
 
 // ──────────────── Planner：只规划，不执行 ────────────────
@@ -206,7 +207,10 @@ export async function main() {
   console.log("\n✅ Step 04 完成\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-04-planner-executor.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

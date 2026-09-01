@@ -40,6 +40,7 @@ import {
   validatePlan,
   aggregateResults,
   resolveArgs,
+  isDirectRun,
 } from "../shared";
 
 // ════════════════════════════════════════════════════════════════
@@ -484,7 +485,10 @@ export async function main() {
   console.log("\n✅ Step 07 完成，7 步渐进式全部跑通\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-07-replan-reflection.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

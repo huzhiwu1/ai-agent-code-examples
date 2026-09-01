@@ -29,6 +29,7 @@ import {
   generatePlan,
   validatePlan,
   resolveArgs,
+  isDirectRun,
 } from "../shared";
 
 /** 顺序执行计划：按 steps 数组顺序逐条执行（Step 02 简化版，不做依赖调度） */
@@ -108,7 +109,10 @@ export async function main() {
   console.log("\n✅ Step 02 完成\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-02-plan-execute.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

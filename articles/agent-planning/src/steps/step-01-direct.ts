@@ -20,7 +20,7 @@
 
 import "dotenv/config";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import { llm, TASK } from "../shared";
+import { llm, TASK, isDirectRun } from "../shared";
 
 export async function main() {
   console.log("=".repeat(72));
@@ -48,7 +48,10 @@ export async function main() {
   console.log("\n✅ Step 01 完成（基线已建立）\n");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-01-direct.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}

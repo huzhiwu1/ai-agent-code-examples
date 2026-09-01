@@ -420,6 +420,16 @@ export function aggregateResults(stateMap: Map<string, StepState>): string {
   return lines.join("\n");
 }
 
+/**
+ * 判断当前进程是否直接运行了指定 step 文件。
+ * 批量模式（index.ts 动态 import 各 step）时，模块顶层 main() 会被 import 触发，
+ * 若不加以防护，index 再手动调一次 main() 就会执行两遍（双份 LLM 调用）。
+ * @param fileName step 文件名（如 "step-01-direct.ts"）
+ */
+export function isDirectRun(fileName: string): boolean {
+  return !!process.argv[1]?.endsWith(fileName);
+}
+
 /** 演示任务：多步 + 有依赖关系 */
 export const TASK =
   "查询用户张三的信息和他的订单历史，计算他应得的折扣金额，然后生成一份简明报告。";

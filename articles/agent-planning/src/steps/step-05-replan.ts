@@ -34,6 +34,7 @@ import {
   validatePlan,
   aggregateResults,
   resolveArgs,
+  isDirectRun,
 } from "../shared";
 
 /** 构造执行上下文（已完成/失败步骤），用于重规划 */
@@ -329,7 +330,10 @@ export async function main() {
   console.log("   replan 的目标是尽可能恢复执行，而非保证 100% 成功。");
 }
 
-main().catch((err) => {
-  console.error("🔥 运行出错:", err);
-  process.exit(1);
-});
+// 仅当本文件被直接运行时才执行 main：避免被 index.ts 批量模式 import 时重复执行
+if (isDirectRun("step-05-replan.ts")) {
+  main().catch((err) => {
+    console.error("🔥 运行出错:", err);
+    process.exit(1);
+  });
+}
