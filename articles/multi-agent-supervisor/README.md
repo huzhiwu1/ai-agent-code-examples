@@ -128,6 +128,7 @@ async function routeIntent(query: string): Promise<"weather" | "trivia" | "unkno
 **为什么这么做：**Supervisor 不负责回答，它只负责选人；而且它可以在一轮结束后再回来继续选人，所以复合任务终于能"先天气、再知识"地串起来。
 
 ```typescript
+// 上下文：weatherAgent / triviaAgent / llm 来自公共骨架
 const workflow = createSupervisor({
   agents: [weatherAgent.graph, triviaAgent.graph],
   llm,
@@ -136,10 +137,28 @@ const workflow = createSupervisor({
   // DeepSeek 兼容：避免 tool_calls 配对校验失败（见下文"实测踩坑"）
   addHandoffMessages: false,
   addHandoffBackMessages: false,
-  prompt: `你是调度员（Supervisor）...
-5. 绝对不要重复调用同一个 Agent，每个 Agent 最多调用一次`,
+  prompt: `你是调度员（Supervisor），只负责选人，不要自己回答问题。
+
+你的子 Agent：
+- weather_agent：查天气、气温、下雨、空气质量
+- trivia_agent：讲城市小知识、景点、历史、文化
+
+规则：
+1. 每次只调用一个 Agent
+2. 如果用户问天气 → 调 weather_agent
+3. 如果用户问知识 → 调 trivia_agent
+4. 如果用户同时问天气 + 知识 → 先调 weather_agent，再调 trivia_agent
+5. 绝对不要重复调用同一个 Agent，每个 Agent 最多调用一次
+6. 绝对不要自己编造数据，必须交给子 Agent 处理`,
 });
 ```
+
+**这段代码要看懂的是：**
+
+- `createSupervisor()` 是调度器工厂，不是回答器
+- `agents` 里放的是子 Agent 图，不是工具列表
+- `prompt` 是软规则，能指导但不能拦截
+- `addHandoffMessages: false` 是为了去噪 + 兼容 DeepSeek
 
 **⚠️ 实测大坑 1：循环是概率性的，没有软配置能根治（本文最重要的发现）**
 
@@ -173,13 +192,32 @@ supervisor → weather_agent → supervisor → weather_agent → ...（循环 9
 **为什么这么做：**如果天气结果能进入历史，后续推荐就能带条件。`outputMode: "full_history"` 让餐厅 Agent 能看到天气 Agent 输出了什么——这就是**状态传递**。
 
 ```typescript
+// 上下文：weatherAgent / restaurantAgent 来自上一段
 const workflow = createSupervisor({
   agents: [weatherAgent.graph, restaurantAgent.graph],
   llm,
   outputMode: "full_history", // 关键：完整对话历史传给子 Agent
-  prompt: `...如果用户先问天气再问餐厅 → 先调 weather_agent 再调 restaurant_agent...`,
+  addHandoffMessages: false,
+  addHandoffBackMessages: false,
+  prompt: `你是调度员。根据用户请求选择合适的 Agent：
+
+你的子 Agent：
+- weather_agent：查天气、气温、是否下雨
+- restaurant_agent：推荐餐厅，会根据天气情况调整策略
+
+规则：
+1. 如果用户先问天气再问餐厅 → 先调 weather_agent 再调 restaurant_agent
+2. 如果用户只问餐厅 → 直接调 restaurant_agent
+3. 所有需求满足后输出 FINISH
+4. 不要自己回答问题，交给子 Agent 处理`,
 });
 ```
+
+**这里讲的是“状态怎么流”：**
+
+- `full_history` 让后一个 Agent 看到前一个 Agent 做了什么
+- 这就是 Agent 间的状态传递
+- 状态越多，token 越贵，所以只在有依赖时值得开
 
 **生产级要点（本 Step 会真实打印 token 消耗）：**
 
@@ -212,9 +250,24 @@ async function supervisorNode(state) {
   if (decision.next !== "FINISH" && state.visitedAgents.includes(decision.next)) {
     return { next: "FINISH", messages: [] };
   }
-  return { next: decision.next, messages: [], visitedAgents: [decision.next] };
+  // 首轮至少先调一个，不能一上来就 FINISH
+  if (decision.next === "FINISH" && state.visitedAgents.length === 0) {
+    return { next: "weather_agent", messages: [], visitedAgents: ["weather_agent"] };
+  }
+  return {
+    next: decision.next,
+    messages: [],
+    visitedAgents: decision.next === "FINISH" ? [] : [decision.next],
+  };
 }
 ```
+
+**这段代码的核心是：**
+
+- `messages` 是上下文
+- `next` 是路由结果
+- `visitedAgents` 是硬状态，不是提示词
+- Prompt 说“不要重复调用”只是建议，`visitedAgents` 才是真拦截
 
 **核心洞见：Prompt 是软约束，状态是硬约束。**"不要重复调用"写在 Prompt 里，模型可能不遵守（Step 03 的循环就是证据）；写进 `visitedAgents` 状态里，代码层直接拦截，模型想重复也重复不了。同时 `withStructuredOutput` 强制路由输出为枚举，杜绝模型输出非法节点名。
 
@@ -227,8 +280,10 @@ async function supervisorNode(state) {
 ```typescript
 // 用户需求 → 必须出现的工具调用 映射表（硬校验的依据）
 const REQUIREMENT_TOOL_MAP = [
-  { keywords: ["天气", "气温", "下雨"], toolName: "lookup_weather", agentName: "weather_agent" },
-  { keywords: ["小知识", "知识", "景点"], toolName: "lookup_city_trivia", agentName: "trivia_agent" },
+  { keywords: ["天气", "气温", "下雨", "空气质量"], toolName: "lookup_weather", agentName: "weather_agent" },
+  { keywords: ["小知识", "知识", "景点", "历史", "文化"], toolName: "lookup_city_trivia", agentName: "trivia_agent" },
+  { keywords: ["餐厅", "美食", "吃"], toolName: "lookup_restaurants", agentName: "restaurant_agent" },
+  { keywords: ["贴士", "旅行", "注意"], toolName: "lookup_travel_tips", agentName: "travel_agent" },
 ];
 
 function hardCheck(state): string[] {
@@ -245,6 +300,12 @@ function hardCheck(state): string[] {
 }
 ```
 
+**这一步的本质是“验票”：**
+
+- `hardCheck()` 不负责文采，只负责查证据
+- 证据就是 tool 调用记录
+- 用户提了什么需求，就应该能在历史里找到对应工具调用
+
 **检查逻辑：需求提到了"小知识"，但历史里没有 `lookup_city_trivia` 的工具调用记录 → 直接判不通过，回 Supervisor 重新调度。**这比"让 LLM 看内容是否完整"可靠得多：工具调用记录是确定性的，编不出来。LLM 软检查只兜底完整性和可读性（主观项），数据来源由硬校验负责（客观项）。反思上限 3 次，防止"反思→重试→再反思"本身变成死循环。
 
 ## Step 07：防失控——预算熔断 + 超时 + Trace 可观测性
@@ -255,14 +316,22 @@ function hardCheck(state): string[] {
 const BUDGET_LIMITS = { maxTotalTokens: 20_000, maxRounds: 5, maxDurationMs: 90_000 };
 
 async function guardNode(state) {
-  if (state.roundCount >= BUDGET_LIMITS.maxRounds)
+  if (state.roundCount >= BUDGET_LIMITS.maxRounds) {
     return { next: "FINISH", budgetBreaker: "maxRounds" };
-  if (state.totalTokens >= BUDGET_LIMITS.maxTotalTokens)
+  }
+  if (state.totalTokens >= BUDGET_LIMITS.maxTotalTokens) {
     return { next: "FINISH", budgetBreaker: "maxTokens" };
+  }
   // 超时判断省略（生产上用 checkpoint 或挂钟）
   return { next: "supervisor" };
 }
 ```
+
+**这一步讲的是“什么时候必须收手”：**
+
+- 轮数太多就停
+- token 太多就停
+- 不是为了把模型卡住，而是为了避免无限烧钱
 
 **可观测性（生产排障的第一手资料）：**每个决策都要记录 `谁 / 为什么 / 花了多少 / 用了多久`。本 Step 会在状态里维护 `traceLogs`，结束时输出结构化执行报告：
 
@@ -283,9 +352,13 @@ async function guardNode(state) {
 new StateGraph(ProductionState)
   .addNode("planner", plannerNode) // 角色：规划者（任务分解）
   .addNode("supervisor", supervisorNode) // 角色：协调者（按任务清单调度，防重复）
+  .addNode("weather_agent", weatherWorkerNode) // 角色：执行者（天气）
+  .addNode("trivia_agent", triviaWorkerNode) // 角色：执行者（知识）
+  .addNode("restaurant_agent", restaurantWorkerNode) // 角色：执行者（餐厅）
+  .addNode("travel_agent", travelWorkerNode) // 角色：执行者（贴士）
   .addNode("reviewer", reviewerNode) // 角色：审阅者（硬校验工具调用记录）
   .addNode("guard", guardNode); // 角色：熔断器（预算/轮数/超时）
-// ... Worker 节点 ×4、条件边、回流边
+// ... 条件边、回流边
 ```
 
 **实测结果：**4 个 Worker 全部按任务清单串行执行，Reviewer 验证每个领域都有真实工具调用记录后放行，最终输出一份完整的杭州三日游规划。**注意：本步是刻意串行实现——JS 版 createSupervisor 的多个 handoff Command 只有第一个生效（见"实测踩坑"第 3 条），但手写 StateGraph 完全可以用 Send API 做真并行扇出（见 Step 09）。**
@@ -313,10 +386,16 @@ import { Send } from "@langchain/langgraph";
   // 实测坑：Send 的 args 是目标节点的完整输入 state（不与图状态自动合并），
   // 必须显式传 Worker 需要的字段（messages + 波次号），否则节点里是 undefined
   return state.currentBatch.map(
-    (node) => new Send(node, { messages: state.messages, roundCount: state.roundCount })
+    (node) => new Send(node, { messages: state.messages, roundCount: state.roundCount, traceId: state.traceId })
   );
 })
 ```
+
+**这一步看的是并行边界：**
+
+- 没依赖的任务可以同批并行
+- 有依赖的任务必须等前一波完成
+- `Send[]` 的目的不是炫技，而是把等待时间拆短
 
 **核心洞见：并行调度不需要 LLM。**任务清单（Planner 输出）+ 依赖表（静态配置）+ visitedAgents（状态记录）三者都是确定性的，Supervisor 直接算出就绪批次：`ready = 未调度 ∧ 依赖已满足`。LLM 从调度层退场后，Step 03 的循环、Step 05 拦截的"提前 FINISH / 重复调度"从机制上消失——因为调度不再依赖模型输出。
 
@@ -338,6 +417,35 @@ import { Send } from "@langchain/langgraph";
 4. **Reflector 被编造内容骗过**：子 Agent 收到完整用户请求后会越权回答其他领域的问题（编造数据），LLM 主观质量检查会被骗。修复：程序化硬校验工具调用记录。
 5. **DeepSeek tool_calls 严格配对**：带 `tool_calls` 的 assistant 消息后面必须逐一响应 ToolMessage，任何"丢消息"的操作都可能触发 400——这是配置第 2、3 条所有 workaround 的根本原因。
 6. **Send 的 args 不是增量合并（Step 09 实测坑）**：`new Send(node, {})` 时目标节点拿到的 state 里只有 args 中的字段，其余字段（包括 schema 默认值）都是 `undefined`——Worker 读不到 messages/roundCount，导致 `agentGraph.invoke({ messages: undefined })` 后消息 reducer 崩溃（`Cannot read properties of undefined (reading 'role')`）。修复：Send args 必须显式传目标节点需要的所有字段（如 `{ messages: state.messages, roundCount: state.roundCount }`）。
+
+## A2A：多个 Agent 真的要“互相协作”时，应该补什么？
+
+前面讲的是“一个 Supervisor 怎么调度多个 Worker”。A2A（Agent-to-Agent）更进一步：**Agent 之间不仅要能被调度，还要有明确的协作协议。**
+
+如果把多 Agent 只理解成“多个模型轮流答题”，很快就会遇到这些问题：
+
+- 任务怎么交接？
+- 信息够不够谁说了算？
+- 两个 Agent 结论冲突怎么办？
+- 某个 Agent 掉线后谁来接力？
+
+### 文章里建议补 4 个 A2A 小节
+
+**1. 协作协议**  
+每个 Agent 交接时，建议明确：`taskId`、`fromAgent`、`toAgent`、`contextSummary`、`constraints`、`expectedOutput`。这样读者知道“消息不是随便传的”。
+
+**2. 角色边界**  
+谁能发起请求、谁能响应、谁能改状态、谁只能读不能写，要写清楚。
+
+**3. 冲突仲裁**  
+如果多个 Agent 的结果不一致，谁拍板？Supervisor、Reviewer，还是专门的 Judge Agent？
+
+**4. 失败回退**  
+某个 Agent 超时/失败后，是重试、降级、还是切备用 Agent？这个也要写出来。
+
+### 一句总原则
+
+> A2A 的核心不是“Agent 互相聊天”，而是“协作时有协议、转接时有证据、冲突时有裁决、失败时有回退”。
 
 ## 面试考点（更新版）
 
