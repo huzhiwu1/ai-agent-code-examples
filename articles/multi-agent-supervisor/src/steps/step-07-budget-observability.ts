@@ -245,6 +245,11 @@ async function guardNode(state: typeof BudgetState.State) {
 
 // ──────────────── 图构建 ────────────────
 
+/**
+ * 构建带 Guard 熔断的图：supervisor → Agent → guard → supervisor / FINISH
+ * Guard 在每次 Agent 完成后检查轮数/Token/超时（三个阈值顺序短路），
+ * 任一超限即 FINISH 并记录 budgetBreaker（熔断原因可复盘）。
+ */
 function buildBudgetGraph() {
   return (
     new StateGraph(BudgetState)

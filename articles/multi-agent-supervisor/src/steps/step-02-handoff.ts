@@ -61,7 +61,15 @@ export async function main() {
     systemPrompt: "你只讲城市知识和景点。必须先调用 lookup_city_trivia，再用人话转述。",
   });
 
-  // Router: 用 LLM 判断意图
+  /**
+   * routeIntent —— 手动 Router：只负责意图分类，不负责回答
+   * @param query 用户原始输入
+   * @returns "weather"（天气类）| "trivia"（知识类）| "unknown"（其他）
+   *
+   * 职责边界：Router 只"选人"，回答交给子 Agent——这是 Step 03 Supervisor 的雏形。
+   * 交接物只有原始消息（裸交接，无任何协议字段）——这是手工 Handoff 的脆弱点
+   * （生产级 A2A 交接协议字段见 README「A2A」小节）。
+   */
   async function routeIntent(query: string): Promise<"weather" | "trivia" | "unknown"> {
     const routerPrompt = new SystemMessage(
       `你是一个路由分类器。分析用户输入，判断意图类型，只输出一个词：
@@ -89,7 +97,9 @@ export async function main() {
 
   if (intent1 === "weather") {
     console.log("👉 交接给 weather_agent ...");
-    // 手动 Handoff：Router 选好人后，由代码直接调用对应 Agent 的图
+    // 手动 Handoff：Router 选好人后，由代码直接调用对应 Agent 的图。
+    // 注意交接物只有一条原始消息（"裸交接"）——生产级 A2A 交接应携带
+    // taskId / 上下文摘要 / 约束 / 期望输出等协议字段（见 README「A2A」小节）
     const result = await weatherAgent.graph.invoke({
       messages: [new HumanMessage(query1)],
     });

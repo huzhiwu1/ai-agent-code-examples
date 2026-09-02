@@ -244,6 +244,12 @@ async function reflectorNode(state: typeof ReflectorState.State) {
 
 // ──────────────── 图构建 ────────────────
 
+/**
+ * 构建带 Reflector 的图：supervisor → Agent → reflector → supervisor / FINISH
+ * 与 Step 05 的差异：Agent 完成后先过 reflector（hardCheck 硬校验 + LLM 软检查），
+ * 而不是直接回流 supervisor——质量反馈由独立状态字段 reflectionFeedback 传递，
+ * 不写入 messages（避免把控制信号伪装成用户消息）。
+ */
 function buildReflectorGraph() {
   return (
     new StateGraph(ReflectorState)

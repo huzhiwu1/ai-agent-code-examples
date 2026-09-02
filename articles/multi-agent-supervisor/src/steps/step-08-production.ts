@@ -393,6 +393,13 @@ async function guardNode(state: typeof ProductionState.State) {
 
 // ──────────────── 图构建 ────────────────
 
+/**
+ * 构建生产级编排图：planner → supervisor → 4 Worker → reviewer → guard → supervisor / FINISH
+ * 角色分工：Planner 拆任务（taskList）、Supervisor 调度（visitedAgents 防重复/防提前 FINISH）、
+ * Worker 执行（只写 messages 增量）、Reviewer 验票（工具调用记录硬校验）、Guard 熔断。
+ * checkpointer 持久化状态：崩溃恢复、断点续跑、时间旅行调试（教学用 MemorySaver，
+ * 生产换 PostgresSaver/Redis 并关联 thread_id）。
+ */
 function buildProductionGraph() {
   return (
     new StateGraph(ProductionState)

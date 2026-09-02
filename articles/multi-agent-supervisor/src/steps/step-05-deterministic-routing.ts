@@ -162,6 +162,12 @@ async function triviaAgentNode(state: typeof SupervisorState.State) {
 
 // ──────────────── 图构建 ────────────────
 
+/**
+ * 构建手写 Supervisor 图：supervisor → weather/trivia → 回流 supervisor
+ * 与 Step 03 的 createSupervisor 等价，但路由逻辑完全可控：
+ * 条件边按 state.next 跳转，回流边形成"决策循环"，
+ * visitedAgents 的硬拦截在 supervisorNode 内完成（确定性任务分配）。
+ */
 function buildSupervisorGraph() {
   return (
     new StateGraph(SupervisorState)

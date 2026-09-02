@@ -391,6 +391,12 @@ async function guardNode(state: typeof ParallelState.State) {
 
 // ──────────────── 图构建 ────────────────
 
+/**
+ * 构建并行扇出图：planner → supervisor --Send[]--> 第 1 波 Worker → reviewer
+ *   → guard → supervisor --Send[]--> 第 2 波（依赖已满足）→ reviewer → FINISH
+ * supervisor 为确定性调度（无 LLM）：ready = 未调度 ∧ 依赖已满足（DOMAIN_DEPENDENCIES）。
+ * 条件边返回 Send[] 时，edge map 必须声明所有可能的扇出目标节点，否则编译期抛 UNREACHABLE_NODE。
+ */
 function buildParallelGraph() {
   return (
     new StateGraph(ParallelState)
